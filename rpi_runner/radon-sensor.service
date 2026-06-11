@@ -1,0 +1,32 @@
+[Unit]
+Description=Radon Sensor Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=radon
+Group=dialout
+
+ExecStart=/usr/local/bin/radon_sensor
+
+# stdout → journald (structured output parsed by journald/promtail)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=radon-sensor
+
+# Restart on unexpected exit; give the sensor time to power-cycle
+Restart=on-failure
+RestartSec=30
+
+# /dev/ttyS0 or /dev/ttyAMA0 — both owned by dialout
+# Uncomment if you need to pass a specific device:
+# Environment=RADON_DEVICE=/dev/ttyAMA0
+
+# Harden: radon user only needs the serial device
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
