@@ -1,0 +1,17 @@
+[Unit]
+Description=CSE radon board 1-minute sensor logger
+# Does not wait for NTP: every record carries ntp_synced instead.
+After=local-fs.target
+
+[Service]
+Type=simple
+User=dreamteam
+# current -> slots/a|b, switched by the OTA updater
+ExecStart=/home/dreamteam/cse/current/radon log
+StateDirectory=cse-radon
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

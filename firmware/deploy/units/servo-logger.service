@@ -1,0 +1,18 @@
+[Unit]
+Description=CSE servo board fan-indicator logger (observe only, no servo motion)
+After=local-fs.target
+
+[Service]
+Type=simple
+User=dreamteam
+# '+' runs as root: servo signals off before start and after any exit (PWM outlives the process).
+ExecStartPre=+/bin/sh -c 'for c in 0 1; do f=/sys/class/pwm/pwmchip0/pwm$c/enable; [ -e "$f" ] && echo 0 > "$f"; done; true'
+ExecStart=/home/dreamteam/cse/current/servo log
+ExecStopPost=+/bin/sh -c 'for c in 0 1; do f=/sys/class/pwm/pwmchip0/pwm$c/enable; [ -e "$f" ] && echo 0 > "$f"; done; true'
+StateDirectory=cse-servo
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

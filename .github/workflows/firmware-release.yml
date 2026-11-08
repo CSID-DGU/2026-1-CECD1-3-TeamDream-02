@@ -1,0 +1,53 @@
+# Push a tag like fw-v0.2.0 -> builds ARMv6 binaries, signs a manifest, publishes a GitHub release.
+# Boards poll <repo>/releases/latest/download/manifest.json hourly and install if the build number is newer.
+# Requires repository secret OTA_SIGNING_KEY (hex ed25519 seed matching firmware/keys/ota_signing.pub).
+# Tag prefix is fw-v on purpose: any other tag in this repo must never reach the boards.
+name: firmware-release
+
+on:
+  push:
+    tags: ["fw-v*"]
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    working-directory: firmware
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      ARM: target/arm-unknown-linux-musleabihf/release
+      HOST_BIN: target/x86_64-unknown-linux-gnu/release
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: arm-unknown-linux-musleabihf
+
+      - name: Test
+        run: cargo test --target x86_64-unknown-linux-gnu --lib
+
+      - name: Build ARMv6 binaries
+        env:
+          FW_VERSION: ${{ github.ref_name }}
+          FW_BUILD: ${{ github.run_number }}
+        run: |
+          cargo build --release --bins
+          readelf -A "$ARM/radon" | grep -q "Tag_CPU_arch: v6"
+
+      - name: Sign manifest
+        env:
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+        run: |
+          cargo build --release --target x86_64-unknown-linux-gnu --bin otatool
+          "$HOST_BIN/otatool" release --version "$GITHUB_REF_NAME" --build "$GITHUB_RUN_NUMBER" \
+            --out dist radon="$ARM/radon" servo="$ARM/servo"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes "build $GITHUB_RUN_NUMBER"
