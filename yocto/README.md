@@ -58,7 +58,7 @@ Cards must be >= 9 GB. First build takes hours; `downloads/` and `sstate-cache/`
   in order, HTTPS only. The position is kept in `upload.json` in the state dir and moves only after the server
   confirmed a batch, so power cuts and a flaky uplink cost nothing but a resend; records stay on the card.
   Token: `provision/upload-token-<board>` (`openssl rand -hex 32`; its sha256 goes into the server's tokens file),
-  installed as `/etc/cse/upload.token`, readable by user `cse` only. Needs firmware fw-v0.1.4 or later.
+  installed as `/etc/cse/upload.token`, readable by user `cse` only. In the image since fw-v0.1.4.
 - Wi-Fi via wpa_supplicant + systemd-networkd, time via systemd-timesyncd (no RTC on the board): asks
   time.google.com / time.cloudflare.com as soon as the network is up, retries every 10 s. The logger never waits
   for it; records before the sync are marked `ntp_synced:false` and dated by the server from `uptime_s`.

@@ -1,3 +1,3 @@
 CSE_BOARD = "radon"
-SRC_URI[bin.sha256sum] = "d0736d837d3c79c32ded4563ac73c8b3b39c35ad11895357b6e3f4617cbe0154"
+SRC_URI[bin.sha256sum] = "ea2afe1dda6a252a78c0ba6d08cacb0f923c869a32583a7abca95e16552db126"
 require cse-firmware.inc
