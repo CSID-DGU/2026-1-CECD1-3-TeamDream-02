@@ -158,13 +158,14 @@ fn main() -> std::io::Result<()> {
             let mut sensors = Sensors::open()?;
             logger::run(Path::new(&dir), Duration::from_secs(secs), |up, errs| sensors.sample(up, errs))
         }
+        Some("upload") => firmware::upload::main_from_args(&args),
         Some("check") | None => check(),
         Some("version") => {
             println!("{} build {}", version::VERSION, version::build());
             Ok(())
         }
         Some(other) => {
-            eprintln!("unknown command {other}; use: check | log [DIR] [SEC] | version");
+            eprintln!("unknown command {other}; use: check | log [DIR] [SEC] | upload [DIR] [once] | version");
             std::process::exit(2)
         }
     }

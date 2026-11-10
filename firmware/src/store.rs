@@ -12,7 +12,7 @@ pub struct Store {
     next_seq: u64,
 }
 
-fn segments(dir: &Path) -> io::Result<Vec<PathBuf>> {
+pub(crate) fn segments(dir: &Path) -> io::Result<Vec<PathBuf>> {
     let mut v: Vec<PathBuf> = fs::read_dir(dir)?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| {
@@ -93,7 +93,7 @@ impl Store {
     }
 }
 
-fn first_seq_of(p: &Path) -> Option<u64> {
+pub(crate) fn first_seq_of(p: &Path) -> Option<u64> {
     p.file_stem()?.to_str()?.strip_prefix("data-")?.parse().ok()
 }
 

@@ -82,6 +82,7 @@ fn main() -> std::io::Result<()> {
                 sensors.sample(errs)
             })
         }
+        Some("upload") => firmware::upload::main_from_args(&args),
         Some("check") | None => {
             let mut errors = Vec::new();
             let mut s = Sensors::open(&mut errors)?;
@@ -99,7 +100,7 @@ fn main() -> std::io::Result<()> {
             Ok(())
         }
         Some(other) => {
-            eprintln!("unknown command {other}; use: check | log [DIR] [SEC] | version");
+            eprintln!("unknown command {other}; use: check | log [DIR] [SEC] | upload [DIR] [once] | version");
             std::process::exit(2)
         }
     }

@@ -9,5 +9,6 @@ pub mod pwm;
 pub mod store;
 pub mod sys;
 pub mod tmp102;
+pub mod upload;
 pub mod version;
 pub mod zd100;

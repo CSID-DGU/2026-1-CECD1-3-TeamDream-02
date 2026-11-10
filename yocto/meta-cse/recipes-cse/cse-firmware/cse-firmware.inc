@@ -7,6 +7,8 @@ CSE_TAG = "fw-v0.1.2"
 CSE_BUILD = "3"
 # Boards poll this for newer signed releases (cse-ota.timer, hourly).
 CSE_OTA_SOURCE = "${CSE_REPO}/releases/latest/download"
+# Ingest server (server/ in this repo) the boards upload their records to.
+CSE_UPLOAD_URL = "https://radon.kafu.moe/v1/records"
 
 # The binaries are built and signed by .github/workflows/firmware-release.yml; Yocto only installs them,
 # pinned by sha256 so the image content is identical on every build.
@@ -18,7 +20,12 @@ SRC_URI = " \
     file://cse-ota.timer \
     file://cse-ota-seed.sh \
     file://cse-ota-seed.service \
+    file://cse-upload.service \
+    file://upload-token-${CSE_BOARD} \
 "
+# The board's upload token is a secret and lives outside git like the Wi-Fi password: CSE_PROVISION_DIR
+# (default yocto/provision). "Unable to find file://upload-token-..." means it is missing there, see README.
+FILESEXTRAPATHS:prepend := "${CSE_PROVISION_DIR}:"
 SRC_URI[ota.sha256sum] = "eeab9d9dcc7a002aad580f58cecfacb03538c21e3b1a53585182d76ae1e8a538"
 
 S = "${UNPACKDIR}"
@@ -28,13 +35,13 @@ DEPENDS += "udev-rules-rpi"
 
 inherit systemd useradd
 
-SYSTEMD_SERVICE:${PN} = "${CSE_BOARD}-logger.service cse-ota-seed.service cse-ota.timer"
+SYSTEMD_SERVICE:${PN} = "${CSE_BOARD}-logger.service ${CSE_BOARD}-upload.service cse-ota-seed.service cse-ota.timer"
 SYSTEMD_AUTO_ENABLE = "enable"
 
 USERADD_PACKAGES = "${PN}"
 USERADD_PARAM:${PN} = "--system --no-create-home --shell /sbin/nologin --groups i2c,dialout cse"
 
-# ota fetches with curl over HTTPS
+# ota and the uploader use curl over HTTPS
 RDEPENDS:${PN} = "curl ca-certificates"
 
 # static musl binaries: nothing to strip/split/link-check
@@ -52,7 +59,8 @@ do_install() {
         ${D}${systemd_system_unitdir}/
 
     install -d ${D}${libexecdir}
-    for f in cse-ota-seed.sh:${D}${libexecdir}/cse-ota-seed cse-ota-seed.service:${D}${systemd_system_unitdir}/cse-ota-seed.service; do
+    for f in cse-ota-seed.sh:${D}${libexecdir}/cse-ota-seed cse-ota-seed.service:${D}${systemd_system_unitdir}/cse-ota-seed.service \
+             cse-upload.service:${D}${systemd_system_unitdir}/${CSE_BOARD}-upload.service; do
         sed -e 's|@BOARD@|${CSE_BOARD}|g' \
             -e 's|@SEED@|{"version":"${CSE_TAG}","build":${CSE_BUILD}}|g' \
             ${UNPACKDIR}/${f%%:*} > ${f#*:}
@@ -64,6 +72,13 @@ board=${CSE_BOARD}
 service=${CSE_BOARD}-logger.service
 state_dir=/var/lib/cse-${CSE_BOARD}
 source=${CSE_OTA_SOURCE}
+EOF
+
+    # readable by the uploader (user cse) only; the token never appears on a command line
+    install -m 0640 -g cse ${UNPACKDIR}/upload-token-${CSE_BOARD} ${D}${sysconfdir}/cse/upload.token
+    cat > ${D}${sysconfdir}/cse/upload.conf <<EOF
+url=${CSE_UPLOAD_URL}
+token_file=${sysconfdir}/cse/upload.token
 EOF
 }
 

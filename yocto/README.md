@@ -11,7 +11,7 @@ Two images, one per board: `cse-image-radon`, `cse-image-servo`.
 | Host toolchain | Yocto buildtools 6.0.4, URL + sha256 in `fetch-buildtools.sh` |
 | Distro/hardware config | `meta-cse/conf/distro/cse.conf` (not `build/conf`) |
 | Firmware | `cse-radon` / `cse-servo` recipes install the binaries of the signed GitHub release `fw-v*`, pinned by sha256 |
-| Not in git (on purpose) | `provision/` (SSH public keys, Wi-Fi passwords), `layers/`, `buildtools/`, `build/`, caches |
+| Not in git (on purpose) | `provision/` (SSH public keys, Wi-Fi passwords, upload tokens), `layers/`, `buildtools/`, `build/`, caches |
 
 To move to a new firmware release: in `meta-cse/recipes-cse/cse-firmware/cse-firmware.inc` change `CSE_TAG`,
 `CSE_BUILD` (the release's `build` in `manifest.json`) and the `ota` sha256; in `cse-radon_*.bb` / `cse-servo_*.bb`
@@ -26,7 +26,7 @@ sudo dnf install diffstat perl perl-Thread-Queue perl-bignum perl-FindBin perl-F
 cd yocto
 ./setup-layers.sh
 ./fetch-buildtools.sh
-cp -r provision.example provision        # then edit: authorized_keys, wpa_supplicant-wlan0.conf
+cp -r provision.example provision        # then edit: authorized_keys, wpa_supplicant-wlan0.conf, upload-token-*
 . ./env.sh
 bitbake cse-image-radon cse-image-servo
 ```
@@ -53,7 +53,15 @@ Cards must be >= 9 GB. First build takes hours; `downloads/` and `sstate-cache/`
 - `radon-logger` / `servo-logger` systemd services (user `cse`, sandboxed, `Restart=always`), same logger and
   record format as the Raspbian setup, state in `/var/lib/cse-radon` or `/var/lib/cse-servo`.
   The servo service switches PWM off before start and after any exit and never moves a servo.
-- Wi-Fi via wpa_supplicant + systemd-networkd, time via systemd-timesyncd (no RTC on the board).
+- `radon-upload` / `servo-upload` services (same binary, `upload`): send the stored records to the ingest server
+  (`server/`, URL `CSE_UPLOAD_URL` in `cse-firmware.inc`, on the board `/etc/cse/upload.conf`) every 5 minutes,
+  in order, HTTPS only. The position is kept in `upload.json` in the state dir and moves only after the server
+  confirmed a batch, so power cuts and a flaky uplink cost nothing but a resend; records stay on the card.
+  Token: `provision/upload-token-<board>` (`openssl rand -hex 32`; its sha256 goes into the server's tokens file),
+  installed as `/etc/cse/upload.token`, readable by user `cse` only. Needs firmware fw-v0.1.4 or later.
+- Wi-Fi via wpa_supplicant + systemd-networkd, time via systemd-timesyncd (no RTC on the board): asks
+  time.google.com / time.cloudflare.com as soon as the network is up, retries every 10 s. The logger never waits
+  for it; records before the sync are marked `ntp_synced:false` and dated by the server from `uptime_s`.
 - Login: user `dreamteam`, SSH key only (password field `*`: no password matches, but the account is not locked;
   a locked account makes sshd refuse keys too), passwordless sudo. Root is locked.
 - Persistent journal on the SD card (`/var/log` is a real directory, not tmpfs): capped at 512 MiB, keeps 1 GiB
@@ -65,4 +73,5 @@ Cards must be >= 9 GB. First build takes hours; `downloads/` and `sstate-cache/`
   (meta-rauc is pinned but not enabled): A/B rootfs partitions, bundle published as a signed release.
 - LTE (ELR22 is a Wi-Fi router, so nothing extra is needed unless it turns out to expose USB data).
 - Tested on both boards (2026-11-10): Wi-Fi, SSH, sensors, ZD100, PWM off, slot seeding, both servos, automatic
-  OTA fw-v0.1.2 -> fw-v0.1.3 (slot a -> b, health check passed). Not yet on a board: the persistent journal.
+  OTA fw-v0.1.2 -> fw-v0.1.3 (slot a -> b, health check passed). Not yet on a board: the persistent journal,
+  the uploader, the timesyncd settings.
