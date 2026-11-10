@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-time board setup (asks for sudo on the Pi once). After this, updates arrive by OTA.
 # Usage: OTA_SOURCE=https://github.com/CSID-DGU/2026-1-CECD1-3-TeamDream-02/releases/latest/download \
-#        HOST=dreamteam@<ip> ./deploy/setup-board.sh radon|servo
+#        HOST=dreamteam@<ip> [SSH_OPTS="-i ~/.ssh/id_ed25519_cse -o IdentitiesOnly=yes"] ./deploy/setup-board.sh radon|servo
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -10,10 +10,13 @@ case "$board" in radon|servo) ;; *) echo "board must be radon or servo" >&2; exi
 host="${HOST:-dreamteam@192.168.5.41}"
 source="${OTA_SOURCE:?set OTA_SOURCE to the release download URL}"
 arm=target/arm-unknown-linux-musleabihf/release
+read -r -a sshopts <<< "${SSH_OPTS:-}"
 
 cargo build --release --bins
-scp -q "$arm/$board" "$arm/ota" "deploy/units/$board-logger.service" deploy/units/cse-ota.service deploy/units/cse-ota.timer "$host:/tmp/"
-ssh -t "$host" "BOARD=$board SOURCE='$source' bash -s" <<'EOF'
+scp -q "${sshopts[@]}" "$arm/$board" "$arm/ota" "deploy/units/$board-logger.service" deploy/units/cse-ota.service deploy/units/cse-ota.timer "$host:/tmp/"
+remote=$(mktemp)
+trap 'rm -f "$remote"' EXIT
+cat > "$remote" <<'EOF'
 set -euo pipefail
 R=$HOME/cse
 mkdir -p "$R/slots/a" "$R/slots/b" "$R/ota" "$R/bin"
@@ -39,3 +42,5 @@ sleep 3
 systemctl --no-pager --lines=3 status "$BOARD-logger.service" || true
 CSE_ROOT=$R "$R/bin/ota" status
 EOF
+scp -q "${sshopts[@]}" "$remote" "$host:/tmp/cse-setup.sh"
+ssh -t "${sshopts[@]}" "$host" "BOARD=$board SOURCE='$source' bash /tmp/cse-setup.sh; rm -f /tmp/cse-setup.sh"
