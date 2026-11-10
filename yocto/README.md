@@ -56,12 +56,13 @@ Cards must be >= 9 GB. First build takes hours; `downloads/` and `sstate-cache/`
 - Wi-Fi via wpa_supplicant + systemd-networkd, time via systemd-timesyncd (no RTC on the board).
 - Login: user `dreamteam`, SSH key only (password field `*`: no password matches, but the account is not locked;
   a locked account makes sshd refuse keys too), passwordless sudo. Root is locked.
-- `/var/log` is in RAM (journal lost at power-off).
+- Persistent journal on the SD card (`/var/log` is a real directory, not tmpfs): capped at 512 MiB, keeps 1 GiB
+  free, synced every 30 s (`recipes-core/systemd/files/50-cse-journal.conf`).
 
 ## Not done yet
 
 - OS OTA: the app OTA above updates only the logger binaries. Kernel and packages need a new image; the plan is RAUC
   (meta-rauc is pinned but not enabled): A/B rootfs partitions, bundle published as a signed release.
 - LTE (ELR22 is a Wi-Fi router, so nothing extra is needed unless it turns out to expose USB data).
-- Tested on both boards (2026-11-10): Wi-Fi, SSH, sensors, ZD100, PWM off, slot seeding. Not yet: an OTA update
-  from this image, a servo move.
+- Tested on both boards (2026-11-10): Wi-Fi, SSH, sensors, ZD100, PWM off, slot seeding, both servos, automatic
+  OTA fw-v0.1.2 -> fw-v0.1.3 (slot a -> b, health check passed). Not yet on a board: the persistent journal.
