@@ -1,0 +1,27 @@
+[Unit]
+Description=CSE servo board light-sensor logger (observe only, no servo motion)
+After=local-fs.target
+
+[Service]
+Type=simple
+User=cse
+# '+' runs as root: servo signals off before start and after any exit (PWM outlives the process).
+ExecStartPre=+/bin/sh -c 'for c in 0 1; do f=/sys/class/pwm/pwmchip0/pwm$c/enable; [ -e "$f" ] && echo 0 > "$f"; done; true'
+# current -> slots/a|b, switched by the OTA updater (cse-ota.service)
+ExecStart=/var/lib/cse-ota/current/servo log
+ExecStopPost=+/bin/sh -c 'for c in 0 1; do f=/sys/class/pwm/pwmchip0/pwm$c/enable; [ -e "$f" ] && echo 0 > "$f"; done; true'
+StateDirectory=cse-servo
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+SyslogIdentifier=cse-servo
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,6 @@
+bitbake https://git.openembedded.org/bitbake 2.18 6e260eb6ab1631607ea414d9ff8ede1155faa5d9
+openembedded-core https://git.openembedded.org/openembedded-core wrynose ae5a301091f5b0574ea7444aab40b309b6d9f3f2
+meta-yocto https://git.yoctoproject.org/meta-yocto wrynose 79b6d87030178bed0088ad3b00aa6dfbabac37c4
+meta-openembedded https://git.openembedded.org/meta-openembedded wrynose c734c2cb9713dbd6d50697a9f6c25ebdf3ae589e
+meta-raspberrypi https://git.yoctoproject.org/meta-raspberrypi wrynose 919588393f41b48cb6c5d832aa35e58a19b6762d
+meta-rauc https://github.com/rauc/meta-rauc.git wrynose 38da0e5866a953e664001ba90b5edad68d68cd5d

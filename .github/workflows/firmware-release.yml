@@ -1,4 +1,5 @@
 # Push a tag like fw-v0.2.0 -> builds ARMv6 binaries, signs a manifest, publishes a GitHub release.
+# The ota updater itself is published (and signed in the manifest) too, so the Yocto image can pin it by sha256.
 # Boards poll <repo>/releases/latest/download/manifest.json hourly and install if the build number is newer.
 # Requires repository secret OTA_SIGNING_KEY (hex ed25519 seed matching firmware/keys/ota_signing.pub).
 # Tag prefix is fw-v on purpose: any other tag in this repo must never reach the boards.
@@ -45,7 +46,7 @@ jobs:
         run: |
           cargo build --release --target x86_64-unknown-linux-gnu --bin otatool
           "$HOST_BIN/otatool" release --version "$GITHUB_REF_NAME" --build "$GITHUB_RUN_NUMBER" \
-            --out dist radon="$ARM/radon" servo="$ARM/servo"
+            --out dist radon="$ARM/radon" servo="$ARM/servo" ota="$ARM/ota"
 
       - name: Publish release
         env:

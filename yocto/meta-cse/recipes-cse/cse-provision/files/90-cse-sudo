@@ -1,0 +1,2 @@
+# Login is SSH-key only (no password is set), so sudo asks for none either.
+dreamteam ALL=(ALL) NOPASSWD:ALL
