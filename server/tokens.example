@@ -1,0 +1,6 @@
+# <name> <sha256 hex of the token> <board|reader>
+# Make a token and its hash:  T=$(openssl rand -hex 32); printf %s "$T" | sha256sum
+# The token goes on the board (or to the reader), only the hash goes here.
+radon 0000000000000000000000000000000000000000000000000000000000000000 board
+servo 0000000000000000000000000000000000000000000000000000000000000000 board
+team  0000000000000000000000000000000000000000000000000000000000000000 reader

@@ -1,0 +1,6 @@
+target/
+data/
+# token hashes for a real deployment; tokens.example is the template
+tokens
+*.tar
+*.tar.zst
