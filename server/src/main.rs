@@ -119,20 +119,30 @@ async fn post_records(State(app): AppState, headers: HeaderMap, body: Bytes) -> 
 #[derive(Deserialize)]
 struct RecordsQuery {
     board: Option<String>,
+    event: Option<String>,
+    from_ms: Option<i64>,
+    to_ms: Option<i64>,
     #[serde(default)]
     after: i64,
     limit: Option<i64>,
 }
 
-/// GET /v1/records?board=&after=&limit=: NDJSON `{"id","board","received_ms","t_ms","t_source","record"}` in
-/// arrival order; t_ms is the measurement time (see store.rs for how unsynced records are dated).
+/// GET /v1/records?board=&event=&from_ms=&to_ms=&after=&limit=: NDJSON
+/// `{"id","board","event","received_ms","t_ms","t_source","record"}` in arrival order; t_ms is the measurement
+/// time (see store.rs for how unsynced records are dated) and what from_ms/to_ms select on.
 /// Page with after = the last id seen (also sent as X-Last-Id).
 async fn get_records(State(app): AppState, headers: HeaderMap, Query(q): Query<RecordsQuery>) -> Response {
     if let Err(r) = caller(&app, &headers, Role::Reader) {
         return r;
     }
     let limit = q.limit.unwrap_or(1000).clamp(1, 10_000);
-    let rows = match with_db(&app, move |c| store::records(c, q.board.as_deref(), q.after, limit)).await {
+    let after = q.after;
+    let rows = match with_db(&app, move |c| {
+        let f = store::Filter { board: q.board.as_deref(), event: q.event.as_deref(), from_ms: q.from_ms, to_ms: q.to_ms };
+        store::records(c, &f, after, limit)
+    })
+    .await
+    {
         Ok(Ok(rows)) => rows,
         _ => return err(StatusCode::SERVICE_UNAVAILABLE, "database error"),
     };
@@ -140,16 +150,17 @@ async fn get_records(State(app): AppState, headers: HeaderMap, Query(q): Query<R
     for r in &rows {
         // body was validated as JSON on ingest, so it is embedded as is
         out.push_str(&format!(
-            "{{\"id\":{},\"board\":{},\"received_ms\":{},\"t_ms\":{},\"t_source\":{},\"record\":{}}}\n",
+            "{{\"id\":{},\"board\":{},\"event\":{},\"received_ms\":{},\"t_ms\":{},\"t_source\":{},\"record\":{}}}\n",
             r.id,
             json!(r.board),
+            json!(r.event),
             r.received_ms,
             json!(r.t_ms),
             json!(r.t_source),
             r.body
         ));
     }
-    let last = rows.last().map_or(q.after, |r| r.id);
+    let last = rows.last().map_or(after, |r| r.id);
     ([(header::CONTENT_TYPE, "application/x-ndjson".to_owned()), ("x-last-id".parse().unwrap(), last.to_string())], out)
         .into_response()
 }

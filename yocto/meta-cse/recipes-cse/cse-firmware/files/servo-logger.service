@@ -1,19 +1,20 @@
 [Unit]
-Description=CSE servo board light-sensor logger (observe only, no servo motion)
+Description=CSE servo board: indicator-light logger and button presser
 After=local-fs.target
 
 [Service]
 Type=simple
 User=cse
-# '+' runs as root: servo signals off before start and after any exit (PWM outlives the process).
-ExecStartPre=+/bin/sh -c 'for c in 0 1; do f=/sys/class/pwm/pwmchip0/pwm$c/enable; [ -e "$f" ] && echo 0 > "$f"; done; true'
+# '+' runs as root. PWM outlives the process, so: signals off before start and after any exit.
+# "setup" also exports the two channels and lets user cse drive them (a press comes from `servo-press`).
+ExecStartPre=+/usr/libexec/cse-servo-pwm setup
 # current -> slots/a|b, switched by the OTA updater (cse-ota.service)
 ExecStart=/var/lib/cse-ota/current/servo log
-ExecStopPost=+/bin/sh -c 'for c in 0 1; do f=/sys/class/pwm/pwmchip0/pwm$c/enable; [ -e "$f" ] && echo 0 > "$f"; done; true'
+ExecStopPost=+/usr/libexec/cse-servo-pwm off
 StateDirectory=cse-servo
 Restart=always
 RestartSec=5
-TimeoutStopSec=15
+TimeoutStopSec=30
 
 NoNewPrivileges=yes
 ProtectSystem=strict

@@ -1,4 +1,4 @@
-# CSE ingest server. Build: docker build -t cse-server:0.1.1 server/
+# CSE ingest server. Build: docker build -t cse-server:0.2.0 server/
 FROM docker.io/library/rust:1.94-slim-trixie AS build
 WORKDIR /src
 # dependencies first, so source edits do not rebuild them

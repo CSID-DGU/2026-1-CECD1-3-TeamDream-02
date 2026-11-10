@@ -17,6 +17,9 @@ const REJECTED_FILE: &str = "upload-rejected.ndjson";
 const MAX_BATCH_BYTES: usize = 512 * 1024;
 const RETRY_MIN: Duration = Duration::from_secs(30);
 const RETRY_MAX: Duration = Duration::from_secs(900);
+/// How long after boot to wait for NTP before trying anyway. TLS needs a roughly correct clock; timesyncd restores
+/// the last saved time at boot, which is usually close enough even if the uplink blocks NTP.
+const NTP_WAIT_S: f64 = 300.0;
 
 fn err(msg: impl Into<String>) -> io::Error {
     io::Error::other(msg.into())
@@ -261,7 +264,7 @@ pub fn main_from_args(args: &[String]) -> io::Result<()> {
             return Ok(());
         }
         // TLS needs a correct clock and the board has no RTC
-        let wait = if !sys::ntp_synced() {
+        let wait = if !sys::ntp_synced() && sys::uptime_s() < NTP_WAIT_S {
             Duration::from_secs(15)
         } else {
             match cycle(dir, &cfg) {

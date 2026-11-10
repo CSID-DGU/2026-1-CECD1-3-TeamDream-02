@@ -40,11 +40,12 @@ fn repair(file: &mut File) -> io::Result<(usize, Option<u64>)> {
         file.sync_all()?;
     }
     let text = String::from_utf8_lossy(&buf[..keep]);
-    let last_seq = text
-        .lines()
-        .last()
-        .and_then(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-        .and_then(|v| v.get("seq")?.as_u64());
+    // The last line normally carries the last seq. If lines at the end are unreadable (card corruption), count
+    // them on top of the last readable seq, so no seq is ever handed out twice: the uploader's cursor relies on it.
+    let last_seq = text.lines().rev().enumerate().find_map(|(after, l)| {
+        let seq = serde_json::from_str::<serde_json::Value>(l).ok()?.get("seq")?.as_u64()?;
+        Some(seq + after as u64)
+    });
     file.seek(SeekFrom::End(0))?;
     Ok((text.lines().count(), last_seq))
 }
@@ -56,7 +57,8 @@ impl Store {
         if let Some(last) = segments(&dir)?.pop() {
             let mut file = OpenOptions::new().read(true).append(true).open(&last)?;
             let (lines, last_seq) = repair(&mut file)?;
-            let next_seq = last_seq.map_or_else(|| first_seq_of(&last).unwrap_or(0), |s| s + 1);
+            // nothing readable at all: every line of this segment still used up one seq
+            let next_seq = last_seq.map_or_else(|| first_seq_of(&last).unwrap_or(0) + lines as u64, |s| s + 1);
             return Ok(Self { dir, file, lines, next_seq });
         }
         let file = Self::create_segment(&dir, 0)?;
@@ -122,6 +124,25 @@ mod tests {
         let s = Store::open(&d).unwrap();
         assert_eq!(s.next_seq(), 3);
         assert_eq!(fs::read_to_string(&seg).unwrap().lines().count(), 3);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn unreadable_tail_does_not_reuse_seqs() {
+        let d = tmpdir("garbage");
+        let mut s = Store::open(&d).unwrap();
+        for _ in 0..3 {
+            let seq = s.next_seq();
+            s.append(&format!("{{\"seq\":{seq}}}")).unwrap();
+        }
+        drop(s);
+        let seg = segments(&d).unwrap().pop().unwrap();
+        OpenOptions::new().append(true).open(&seg).unwrap().write_all(b"\x00\x00garbage\nmore garbage\n").unwrap();
+        // seqs 0..2 readable, two unreadable lines stand for 3 and 4
+        assert_eq!(Store::open(&d).unwrap().next_seq(), 5);
+
+        fs::write(&seg, b"junk\njunk\n").unwrap();
+        assert_eq!(Store::open(&d).unwrap().next_seq(), 2);
         fs::remove_dir_all(&d).unwrap();
     }
 

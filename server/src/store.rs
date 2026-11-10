@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS records (
     received_ms INTEGER NOT NULL,
     body        TEXT    NOT NULL,
     uptime_ms   INTEGER,
+    event       TEXT    NOT NULL DEFAULT 'sample',
     UNIQUE (board, boot_id, seq)
 );
 CREATE INDEX IF NOT EXISTS records_board_t ON records (board, t_unix_ms);
@@ -36,17 +37,25 @@ CREATE TABLE IF NOT EXISTS boots (
 );
 ";
 
-/// Databases created by 0.1.0 have no uptime_ms column and no boots rows: add and fill them from the stored bodies.
+/// Brings an older database up to date; the columns are filled from the stored bodies.
+/// 1 (0.1.1): uptime_ms and the boots table. 2 (0.2.0): event.
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    if version >= 1 {
+    if version >= 2 {
         return Ok(());
     }
     let tx = conn.transaction()?;
-    let has_uptime: bool =
-        tx.query_row("SELECT COUNT(*) FROM pragma_table_info('records') WHERE name = 'uptime_ms'", [], |r| r.get(0))?;
-    if !has_uptime {
+    let has = |name: &str| -> rusqlite::Result<bool> {
+        tx.query_row("SELECT COUNT(*) FROM pragma_table_info('records') WHERE name = ?1", [name], |r| r.get(0))
+    };
+    if !has("uptime_ms")? {
         tx.execute_batch("ALTER TABLE records ADD COLUMN uptime_ms INTEGER")?;
+    }
+    if !has("event")? {
+        tx.execute_batch(
+            "ALTER TABLE records ADD COLUMN event TEXT NOT NULL DEFAULT 'sample';
+             UPDATE records SET event = json_extract(body, '$.event') WHERE json_type(body, '$.event') = 'text';",
+        )?;
     }
     tx.execute_batch(
         "UPDATE records SET uptime_ms = CAST(json_extract(body, '$.uptime_s') * 1000 AS INTEGER)
@@ -56,7 +65,8 @@ fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
          WHERE ntp_synced AND uptime_ms IS NOT NULL AND seq = (
              SELECT MIN(seq) FROM records
              WHERE board = r.board AND boot_id = r.boot_id AND ntp_synced AND uptime_ms IS NOT NULL);
-         PRAGMA user_version = 1;",
+         CREATE INDEX IF NOT EXISTS records_board_event ON records (board, event, id);
+         PRAGMA user_version = 2;",
     )?;
     tx.commit()
 }
@@ -103,6 +113,8 @@ struct Rec<'a> {
     t_unix_ms: i64,
     ntp_synced: bool,
     uptime_ms: Option<i64>,
+    /// "sample" when the record has none (firmware before fw-v0.2.0)
+    event: &'a str,
     body: &'a str,
 }
 
@@ -121,7 +133,11 @@ fn parse<'a>(line: &'a str, v: &'a Value) -> Result<Rec<'a>, &'static str> {
     let t_unix_ms = o.get("t_unix_ms").and_then(Value::as_i64).ok_or("t_unix_ms missing")?;
     let ntp_synced = o.get("ntp_synced").and_then(Value::as_bool).unwrap_or(false);
     let uptime_ms = o.get("uptime_s").and_then(Value::as_f64).filter(|u| *u >= 0.0).map(|u| (u * 1000.0) as i64);
-    Ok(Rec { boot_id, seq, t_unix_ms, ntp_synced, uptime_ms, body: line })
+    let event = match o.get("event") {
+        None => "sample",
+        Some(e) => e.as_str().filter(|e| !e.is_empty() && e.len() <= 32).ok_or("event must be a short string")?,
+    };
+    Ok(Rec { boot_id, seq, t_unix_ms, ntp_synced, uptime_ms, event, body: line })
 }
 
 /// Stores an NDJSON batch in one transaction. A bad line rejects the whole batch, so the board never moves its
@@ -147,8 +163,8 @@ pub fn ingest(conn: &mut Connection, board: &str, body: &str, now_ms: i64) -> Re
     let mut inserted = 0;
     {
         let mut stmt = tx.prepare_cached(
-            "INSERT OR IGNORE INTO records (board, boot_id, seq, t_unix_ms, ntp_synced, received_ms, body, uptime_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT OR IGNORE INTO records (board, boot_id, seq, t_unix_ms, ntp_synced, received_ms, body, uptime_ms, event)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         )?;
         // keep the earliest synced record as the anchor: closest to the unsynced ones, so least clock drift
         let mut anchor = tx.prepare_cached(
@@ -159,7 +175,7 @@ pub fn ingest(conn: &mut Connection, board: &str, body: &str, now_ms: i64) -> Re
         )?;
         for r in &recs {
             inserted += stmt.execute(params![
-                board, r.boot_id, r.seq as i64, r.t_unix_ms, r.ntp_synced, now_ms, r.body, r.uptime_ms
+                board, r.boot_id, r.seq as i64, r.t_unix_ms, r.ntp_synced, now_ms, r.body, r.uptime_ms, r.event
             ])?;
             if let (true, Some(up)) = (r.ntp_synced, r.uptime_ms) {
                 anchor.execute(params![board, r.boot_id, r.t_unix_ms - up, r.seq as i64])?;
@@ -179,29 +195,44 @@ pub struct Row {
     pub board: String,
     pub received_ms: i64,
     pub body: String,
+    pub event: String,
     /// best known time of the measurement, None when the boot never synced
     pub t_ms: Option<i64>,
     /// "ntp": the board's synced clock, "boot": boot start + uptime, "none"
     pub t_source: String,
 }
 
-/// Rows with id > after in id order (= arrival order), optionally for one board.
-pub fn records(conn: &Connection, board: Option<&str>, after: i64, limit: i64) -> rusqlite::Result<Vec<Row>> {
+/// What GET /v1/records can narrow down; every field is optional.
+#[derive(Default)]
+pub struct Filter<'a> {
+    pub board: Option<&'a str>,
+    pub event: Option<&'a str>,
+    /// measurement time (t_ms) range, from inclusive, to exclusive; records without a known time never match
+    pub from_ms: Option<i64>,
+    pub to_ms: Option<i64>,
+}
+
+/// Rows with id > after in id order (= arrival order).
+pub fn records(conn: &Connection, f: &Filter, after: i64, limit: i64) -> rusqlite::Result<Vec<Row>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT r.id, r.board, r.received_ms, r.body,
-                CASE WHEN r.ntp_synced THEN r.t_unix_ms ELSE b.boot_unix_ms + r.uptime_ms END,
-                CASE WHEN r.ntp_synced THEN 'ntp' WHEN b.boot_unix_ms + r.uptime_ms IS NOT NULL THEN 'boot' ELSE 'none' END
-         FROM records r LEFT JOIN boots b ON b.board = r.board AND b.boot_id = r.boot_id
-         WHERE r.id > ?1 AND (?2 IS NULL OR r.board = ?2) ORDER BY r.id LIMIT ?3",
+        "SELECT * FROM (
+             SELECT r.id, r.board, r.received_ms, r.body, r.event,
+                    CASE WHEN r.ntp_synced THEN r.t_unix_ms ELSE b.boot_unix_ms + r.uptime_ms END AS t_ms,
+                    CASE WHEN r.ntp_synced THEN 'ntp' WHEN b.boot_unix_ms + r.uptime_ms IS NOT NULL THEN 'boot'
+                         ELSE 'none' END AS t_source
+             FROM records r LEFT JOIN boots b ON b.board = r.board AND b.boot_id = r.boot_id
+             WHERE r.id > ?1 AND (?2 IS NULL OR r.board = ?2) AND (?3 IS NULL OR r.event = ?3))
+         WHERE (?4 IS NULL OR t_ms >= ?4) AND (?5 IS NULL OR t_ms < ?5) ORDER BY id LIMIT ?6",
     )?;
-    stmt.query_map(params![after, board, limit], |r| {
+    stmt.query_map(params![after, f.board, f.event, f.from_ms, f.to_ms, limit], |r| {
         Ok(Row {
             id: r.get(0)?,
             board: r.get(1)?,
             received_ms: r.get(2)?,
             body: r.get(3)?,
-            t_ms: r.get(4)?,
-            t_source: r.get(5)?,
+            event: r.get(4)?,
+            t_ms: r.get(5)?,
+            t_source: r.get(6)?,
         })
     })?
     .collect()
@@ -243,6 +274,10 @@ mod tests {
         c
     }
 
+    fn all(c: &Connection) -> Vec<Row> {
+        records(c, &Filter::default(), 0, 100).unwrap()
+    }
+
     fn rec(boot: &str, seq: u64) -> String {
         format!(r#"{{"v":1,"seq":{seq},"boot_id":"{boot}","t_unix_ms":{},"ntp_synced":true}}"#, 1_000 + seq)
     }
@@ -257,8 +292,8 @@ mod tests {
         // same seq from another board, and seq 0 again after a reflash (new boot_id), are new records
         assert_eq!(ingest(&mut c, "servo", &rec("a", 0), 7).unwrap().inserted, 1);
         assert_eq!(ingest(&mut c, "radon", &rec("b", 0), 8).unwrap().inserted, 1);
-        assert_eq!(records(&c, Some("radon"), 0, 100).unwrap().len(), 4);
-        assert_eq!(records(&c, None, 0, 100).unwrap().len(), 5);
+        assert_eq!(records(&c, &Filter { board: Some("radon"), ..Default::default() }, 0, 100).unwrap().len(), 4);
+        assert_eq!(all(&c).len(), 5);
     }
 
     #[test]
@@ -269,7 +304,8 @@ mod tests {
         let batch = format!("{}\n{{\"seq\":1,\"trunc", rec("a", 0));
         assert!(matches!(ingest(&mut c, "radon", &batch, 5), Err(IngestError::BadLine { line: 2, reason: "not JSON" })));
         assert!(matches!(ingest(&mut c, "radon", "\n\n", 5), Err(IngestError::Empty)));
-        assert!(records(&c, None, 0, 100).unwrap().is_empty());
+        assert!(all(&c).is_empty());
+        assert!(matches!(ingest(&mut c, "radon", r#"{"seq":0,"boot_id":"a","t_unix_ms":1,"event":7}"#, 5), Err(IngestError::BadLine { .. })));
     }
 
     fn timed(boot: &str, seq: u64, t: i64, synced: bool, uptime_s: f64) -> String {
@@ -277,7 +313,29 @@ mod tests {
     }
 
     fn times(c: &Connection) -> Vec<(Option<i64>, String)> {
-        records(c, None, 0, 100).unwrap().into_iter().map(|r| (r.t_ms, r.t_source)).collect()
+        all(c).into_iter().map(|r| (r.t_ms, r.t_source)).collect()
+    }
+
+    #[test]
+    fn filters_by_event_and_time() {
+        let mut c = mem();
+        let ev = |seq: u64, t: i64, event: &str| {
+            format!(r#"{{"seq":{seq},"event":"{event}","boot_id":"a","t_unix_ms":{t},"ntp_synced":true,"uptime_s":1}}"#)
+        };
+        let batch = [ev(0, 1000, "sample"), ev(1, 2000, "led_change"), ev(2, 3000, "servo"), ev(3, 4000, "sample")].join("\n");
+        ingest(&mut c, "servo", &batch, 1).unwrap();
+        // no event field (firmware before fw-v0.2.0) counts as a sample; an unsynced record has no time to match
+        ingest(&mut c, "servo", &timed("a", 4, 5000, true, 5.0), 2).unwrap();
+        ingest(&mut c, "servo", &timed("z", 5, 2500, false, 5.0), 3).unwrap();
+        let seqs = |f: Filter| -> Vec<i64> {
+            records(&c, &f, 0, 100).unwrap().iter().map(|r| serde_json::from_str::<Value>(&r.body).unwrap()["seq"].as_i64().unwrap()).collect()
+        };
+        assert_eq!(seqs(Filter { event: Some("sample"), ..Default::default() }), vec![0, 3, 4, 5]);
+        assert_eq!(seqs(Filter { event: Some("servo"), board: Some("servo"), ..Default::default() }), vec![2]);
+        assert_eq!(seqs(Filter { event: Some("servo"), board: Some("radon"), ..Default::default() }), Vec::<i64>::new());
+        assert_eq!(seqs(Filter { from_ms: Some(2000), to_ms: Some(4000), ..Default::default() }), vec![1, 2]);
+        assert_eq!(seqs(Filter { from_ms: Some(3000), event: Some("sample"), ..Default::default() }), vec![3, 4]);
+        assert_eq!(records(&c, &Filter::default(), 0, 100).unwrap()[1].event, "led_change");
     }
 
     #[test]
@@ -334,6 +392,7 @@ mod tests {
         assert_eq!(times(&c)[0], (Some(1_010_000), "boot".into()));
         assert_eq!(times(&c)[3], (None, "none".into()));
         assert_eq!(ingest(&mut c, "radon", &timed("a", 3, 1_250_000, true, 250.0), 9).unwrap().inserted, 1);
+        assert!(all(&c).iter().all(|r| r.event == "sample"));
     }
 
     #[test]

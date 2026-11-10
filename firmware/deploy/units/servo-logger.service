@@ -1,5 +1,5 @@
 [Unit]
-Description=CSE servo board fan-indicator logger (observe only, no servo motion)
+Description=CSE servo board: indicator-light logger and button presser
 After=local-fs.target
 
 [Service]

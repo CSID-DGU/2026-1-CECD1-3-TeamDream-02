@@ -12,7 +12,7 @@ All endpoints except `/healthz` need `Authorization: Bearer <token>`.
 | Request | Who | Answer |
 |---|---|---|
 | `POST /v1/records`, body = NDJSON, the record lines exactly as the board stored them | board token | `{"inserted":N,"duplicates":M,"last_seq":S}` |
-| `GET /v1/records?board=radon&after=<id>&limit=<n>` | reader token | NDJSON `{"id","board","received_ms","t_ms","t_source","record"}` in arrival order, header `X-Last-Id` |
+| `GET /v1/records?board=&event=&from_ms=&to_ms=&after=<id>&limit=<n>` | reader token | NDJSON `{"id","board","event","received_ms","t_ms","t_source","record"}` in arrival order, header `X-Last-Id` |
 | `GET /v1/boards` | reader token | per board: record count, last arrival, last record |
 | `GET /healthz` | anyone | `ok` |
 
@@ -23,6 +23,16 @@ All endpoints except `/healthz` need `Authorization: Bearer <token>`.
 - One bad line rejects the whole batch (422, `{"error":"line 3: ..."}`), so a board never moves its upload cursor
   past a record the server did not keep. 401: unknown token, 403: wrong role, 503: database problem, retry.
 - Batches up to 4 MiB (`CSE_MAX_BODY`).
+- Events: every record has an `event` saying why it was written; a record without one (firmware before
+  fw-v0.2.0) counts as `sample`.
+  - `sample`: periodic measurement, every 60 s on both boards, so radon and servo records line up by time.
+  - `led_change` (servo board): an indicator light switched; `record.led_before` / `record.led_on` are the states
+    before and after, the time is the reading that first showed the new state (about 1 s resolution, confirmed by
+    the next two readings).
+  - `servo` (servo board): a button press; `record.press` has the servo, the positions, the light-cell voltages
+    before the motion and the lowest 5 V rail during it; the record's own `ldr*_v` are from after the motion.
+  `GET /v1/records?event=servo` etc. selects one kind; `from_ms` / `to_ms` select on the measurement time `t_ms`
+  (from inclusive, to exclusive; records without a known time never match).
 - Measurement time: the boards have no RTC, so a record written before NTP sync has `"ntp_synced":false` and a
   wrong `t_unix_ms`. Use `t_ms` from `GET /v1/records` instead; `t_source` says where it comes from:
   - `ntp`: the board's synced clock (`t_unix_ms`).
@@ -36,10 +46,10 @@ All endpoints except `/healthz` need `Authorization: Bearer <token>`.
 ## Build and move to another server
 
 ```
-docker build -t cse-server:0.1.1 server/          # or: podman build --format docker ...
-docker save cse-server:0.1.1 | zstd -19 > cse-server-0.1.1.tar.zst
+docker build -t cse-server:0.2.0 server/          # or: podman build --format docker ...
+docker save cse-server:0.2.0 | zstd -19 > cse-server-0.2.0.tar.zst
 # on the server
-zstd -dc cse-server-0.1.1.tar.zst | docker load
+zstd -dc cse-server-0.2.0.tar.zst | docker load
 ```
 
 The image is built for the architecture of the build machine (amd64 here). For an arm64 server use
@@ -63,7 +73,7 @@ docker compose logs -f
   `CSE_MAX_BODY` (bytes).
 - Changing tokens: edit `tokens`, then `docker compose restart`.
 - Updating: build or load the new image, set its tag in `compose.yaml`, `docker compose up -d`. The database is
-  upgraded in place at start (0.1.1 adds the boot times; existing records are kept and dated).
+  upgraded in place at start (0.1.1 adds the boot times, 0.2.0 the events; existing records are kept).
 
 ## Develop
 

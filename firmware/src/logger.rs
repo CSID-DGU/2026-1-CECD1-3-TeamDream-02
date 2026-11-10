@@ -17,10 +17,15 @@ pub struct Health {
     pub t_unix_ms: i64,
 }
 
+/// Periodic measurement; the default when a record has no `event` (records before fw-v0.2.0).
+pub const EVENT_SAMPLE: &str = "sample";
+
 #[derive(Serialize)]
 struct Envelope<'a, T: Serialize> {
     v: u32,
     seq: u64,
+    /// why the record was written: "sample", or a board-specific event ("servo", "led_change")
+    event: &'a str,
     fw: &'a str,
     boot_id: &'a str,
     t_unix_ms: i64,
@@ -32,68 +37,106 @@ struct Envelope<'a, T: Serialize> {
     errors: Vec<String>,
 }
 
+/// The moment a record describes; taken before slow sensor reads so the timestamp is the start of the measurement.
+#[derive(Clone, Copy)]
+pub struct Stamp {
+    pub uptime_s: f64,
+    pub t_unix_ms: i64,
+    pub ntp_synced: bool,
+}
+
+impl Stamp {
+    pub fn now() -> Self {
+        Self { uptime_s: sys::uptime_s(), t_unix_ms: sys::unix_ms(), ntp_synced: sys::ntp_synced() }
+    }
+}
+
+/// Appends records to the store (fsync per record) and keeps health.json up to date.
+pub struct Recorder {
+    store: Store,
+    health_path: std::path::PathBuf,
+    boot_id: String,
+    records: u64,
+}
+
+impl Recorder {
+    pub fn open(dir: &Path) -> io::Result<Self> {
+        Ok(Self { store: Store::open(dir)?, health_path: dir.join(HEALTH_FILE), boot_id: sys::boot_id(), records: 0 })
+    }
+
+    pub fn next_seq(&self) -> u64 {
+        self.store.next_seq()
+    }
+
+    pub fn write<T: Serialize>(&mut self, event: &str, at: Stamp, data: T, errors: Vec<String>) -> io::Result<()> {
+        let rec = Envelope {
+            v: 1,
+            seq: self.store.next_seq(),
+            event,
+            fw: version::VERSION,
+            boot_id: &self.boot_id,
+            t_unix_ms: at.t_unix_ms,
+            ntp_synced: at.ntp_synced,
+            uptime_s: at.uptime_s,
+            data,
+            errors,
+        };
+        let line = serde_json::to_string(&rec).map_err(io::Error::other)?;
+        self.store.append(&line)?;
+        if !rec.errors.is_empty() {
+            eprintln!("seq {}: {}", rec.seq, rec.errors.join("; "));
+        }
+        self.records += 1;
+        let health = Health {
+            version: version::VERSION.into(),
+            build: version::build(),
+            boot_id: self.boot_id.clone(),
+            records_this_run: self.records,
+            t_unix_ms: at.t_unix_ms,
+        };
+        let json = serde_json::to_vec(&health).map_err(io::Error::other)?;
+        if let Err(e) = fsutil::write_atomic(&self.health_path, &json) {
+            eprintln!("health write: {e}");
+        }
+        Ok(())
+    }
+}
+
+/// Next slot after `next`, skipping missed ones instead of bursting after a long stall.
+pub fn advance(next: Instant, interval: Duration) -> Instant {
+    let now = Instant::now();
+    let mut next = next + interval;
+    while next <= now {
+        next += interval;
+    }
+    next
+}
+
+/// One "sample" record every `interval`.
 pub fn run<T: Serialize>(
     dir: &Path,
     interval: Duration,
     mut sample: impl FnMut(f64, &mut Vec<String>) -> T,
 ) -> io::Result<()> {
     sys::install_stop_handler();
-    let boot_id = sys::boot_id();
-    let mut store = Store::open(dir)?;
-    let health_path = dir.join(HEALTH_FILE);
+    let mut rec = Recorder::open(dir)?;
     eprintln!(
         "logger {}: dir {}, every {}s, starting at seq {}",
         version::VERSION,
         dir.display(),
         interval.as_secs(),
-        store.next_seq()
+        rec.next_seq()
     );
 
-    let mut records = 0u64;
     let mut next = Instant::now();
     while sys::sleep_until(next) {
         let mut errors = Vec::new();
-        let uptime_s = sys::uptime_s();
-        let t_unix_ms = sys::unix_ms();
-        let ntp_synced = sys::ntp_synced();
-        let data = sample(uptime_s, &mut errors);
-        let rec = Envelope {
-            v: 1,
-            seq: store.next_seq(),
-            fw: version::VERSION,
-            boot_id: &boot_id,
-            t_unix_ms,
-            ntp_synced,
-            uptime_s,
-            data,
-            errors,
-        };
-        let line = serde_json::to_string(&rec).map_err(io::Error::other)?;
-        store.append(&line)?;
-        if !rec.errors.is_empty() {
-            eprintln!("seq {}: {}", rec.seq, rec.errors.join("; "));
-        }
-        records += 1;
-        let health = Health {
-            version: version::VERSION.into(),
-            build: version::build(),
-            boot_id: boot_id.clone(),
-            records_this_run: records,
-            t_unix_ms,
-        };
-        let json = serde_json::to_vec(&health).map_err(io::Error::other)?;
-        if let Err(e) = fsutil::write_atomic(&health_path, &json) {
-            eprintln!("health write: {e}");
-        }
-
-        // Skip missed slots instead of bursting after a long stall.
-        let now = Instant::now();
-        next += interval;
-        while next <= now {
-            next += interval;
-        }
+        let at = Stamp::now();
+        let data = sample(at.uptime_s, &mut errors);
+        rec.write(EVENT_SAMPLE, at, data, errors)?;
+        next = advance(next, interval);
     }
-    eprintln!("logger: stopped at seq {}", store.next_seq());
+    eprintln!("logger: stopped at seq {}", rec.next_seq());
     Ok(())
 }
 

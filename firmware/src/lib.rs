@@ -6,6 +6,7 @@ pub mod ina226;
 pub mod logger;
 pub mod ota;
 pub mod pwm;
+pub mod servo_ctl;
 pub mod store;
 pub mod sys;
 pub mod tmp102;
