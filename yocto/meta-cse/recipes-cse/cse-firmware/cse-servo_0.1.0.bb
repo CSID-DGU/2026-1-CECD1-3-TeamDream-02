@@ -1,3 +1,3 @@
 CSE_BOARD = "servo"
-SRC_URI[bin.sha256sum] = "244f1c30db5d08714d76400941dc703b5bb0d63dc2616ca3a2b5f43f43fd9a18"
+SRC_URI[bin.sha256sum] = "2efd2acf3bb226c9cfb7d9744c6fa2ace616532b2bdc8a78a5000d571651e3b6"
 require cse-firmware.inc

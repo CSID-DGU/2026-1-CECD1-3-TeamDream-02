@@ -1,0 +1,12 @@
+[Unit]
+Description=CSE app slots: seed slot a from the image if the active slot is missing or empty
+After=local-fs.target
+Before=@BOARD@-logger.service cse-ota.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/cse-ota-seed
+
+[Install]
+WantedBy=multi-user.target

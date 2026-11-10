@@ -4,7 +4,7 @@ LICENSE = "CLOSED"
 CSE_REPO = "https://github.com/CSID-DGU/2026-1-CECD1-3-TeamDream-02"
 CSE_TAG = "fw-v0.1.2"
 # GitHub Actions run number of CSE_TAG (manifest.json "build"); the seed slot reports it so OTA only installs newer builds.
-CSE_BUILD = "TODO"
+CSE_BUILD = "3"
 # Boards poll this for newer signed releases (cse-ota.timer, hourly).
 CSE_OTA_SOURCE = "${CSE_REPO}/releases/latest/download"
 
@@ -16,9 +16,10 @@ SRC_URI = " \
     file://${CSE_BOARD}-logger.service \
     file://cse-ota.service \
     file://cse-ota.timer \
-    file://cse-ota.tmpfiles \
+    file://cse-ota-seed.sh \
+    file://cse-ota-seed.service \
 "
-SRC_URI[ota.sha256sum] = "TODO"
+SRC_URI[ota.sha256sum] = "eeab9d9dcc7a002aad580f58cecfacb03538c21e3b1a53585182d76ae1e8a538"
 
 S = "${UNPACKDIR}"
 
@@ -27,7 +28,7 @@ DEPENDS += "udev-rules-rpi"
 
 inherit systemd useradd
 
-SYSTEMD_SERVICE:${PN} = "${CSE_BOARD}-logger.service cse-ota.timer"
+SYSTEMD_SERVICE:${PN} = "${CSE_BOARD}-logger.service cse-ota-seed.service cse-ota.timer"
 SYSTEMD_AUTO_ENABLE = "enable"
 
 USERADD_PACKAGES = "${PN}"
@@ -43,16 +44,20 @@ INSANE_SKIP:${PN} += "already-stripped ldflags arch file-rdeps"
 
 do_install() {
     # seed for slot a; the logger runs /var/lib/cse-ota/current/<board>, never this copy
-    install -d ${D}${libdir}/cse ${D}${bindir} ${D}${systemd_system_unitdir} ${D}${sysconfdir}/cse ${D}${nonarch_libdir}/tmpfiles.d
+    install -d ${D}${libdir}/cse ${D}${bindir} ${D}${systemd_system_unitdir} ${D}${sysconfdir}/cse
     install -m 0755 ${UNPACKDIR}/${CSE_BOARD}-${CSE_TAG} ${D}${libdir}/cse/${CSE_BOARD}
     install -m 0755 ${UNPACKDIR}/ota-${CSE_TAG} ${D}${bindir}/ota
 
     install -m 0644 ${UNPACKDIR}/${CSE_BOARD}-logger.service ${UNPACKDIR}/cse-ota.service ${UNPACKDIR}/cse-ota.timer \
         ${D}${systemd_system_unitdir}/
 
-    sed -e 's|@BOARD@|${CSE_BOARD}|g' \
-        -e 's|@SEED@|{"version":"${CSE_TAG}","build":${CSE_BUILD}}|' \
-        ${UNPACKDIR}/cse-ota.tmpfiles > ${D}${nonarch_libdir}/tmpfiles.d/cse-ota.conf
+    install -d ${D}${libexecdir}
+    for f in cse-ota-seed.sh:${D}${libexecdir}/cse-ota-seed cse-ota-seed.service:${D}${systemd_system_unitdir}/cse-ota-seed.service; do
+        sed -e 's|@BOARD@|${CSE_BOARD}|g' \
+            -e 's|@SEED@|{"version":"${CSE_TAG}","build":${CSE_BUILD}}|g' \
+            ${UNPACKDIR}/${f%%:*} > ${f#*:}
+    done
+    chmod 0755 ${D}${libexecdir}/cse-ota-seed
 
     cat > ${D}${sysconfdir}/cse/ota.conf <<EOF
 board=${CSE_BOARD}
@@ -65,7 +70,7 @@ EOF
 FILES:${PN} += " \
     ${libdir}/cse \
     ${systemd_system_unitdir} \
-    ${nonarch_libdir}/tmpfiles.d/cse-ota.conf \
+    ${libexecdir}/cse-ota-seed \
     ${sysconfdir}/cse \
 "
 COMPATIBLE_MACHINE = "raspberrypi0-wifi"

@@ -1,0 +1,5 @@
+# meta-raspberrypi's sdimage-raspberrypi.wks with a fixed 8 GiB rootfs: the logs live in /var/lib on it, and
+# the default fit-to-content size left ~60 MB free. Fixed instead of growing at first boot: no partition-table edit
+# on the board, and the rest of the card stays free for a later A/B (RAUC) layout. Cards must be >= 9 GB.
+part /boot --source bootimg-partition --ondisk mmcblk0 --fstype=vfat --label boot --active --align 4096 --size 100
+part / --source rootfs --ondisk mmcblk0 --fstype=ext4 --label root --align 4096 --fixed-size 8G

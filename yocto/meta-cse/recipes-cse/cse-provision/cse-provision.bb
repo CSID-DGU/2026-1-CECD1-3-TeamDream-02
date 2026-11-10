@@ -20,8 +20,9 @@ DEPENDS += "udev-rules-rpi"
 inherit useradd
 
 USERADD_PACKAGES = "${PN}"
-USERADD_PARAM:${PN} = "--create-home --shell /bin/sh --groups i2c,dialout,sudo dreamteam"
-# locked password: SSH key only
+# password '*': no password can match, but the account is not locked. useradd's default '!' marks it locked,
+# and sshd without PAM then refuses every login, SSH keys included.
+USERADD_PARAM:${PN} = "--create-home --shell /bin/sh --groups i2c,dialout,sudo --password '*' dreamteam"
 INHIBIT_PACKAGE_STRIP = "1"
 
 do_install() {

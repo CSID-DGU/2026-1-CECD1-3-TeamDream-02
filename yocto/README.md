@@ -32,26 +32,36 @@ bitbake cse-image-radon cse-image-servo
 ```
 
 Images land in `build/tmp/deploy/images/raspberrypi0-wifi/<image>-raspberrypi0-wifi.rootfs.wic.bz2`.
-Flash with `bmaptool copy <file>.wic.bz2 /dev/sdX`. First build takes hours; `downloads/` and `sstate-cache/`
+Flash with `bmaptool copy <file>.wic.bz2 /dev/sdX` (writes ~210 MB of the 8.7 GB image; `dd` would write all of it).
+Cards must be >= 9 GB. First build takes hours; `downloads/` and `sstate-cache/`
 (shared, next to `build/`) make later builds fast.
 
 ## What is in the image
 
 - Hardware as on the Raspbian boards: I2C on (`i2c-dev`, group `i2c`), hardware PWM overlay `pwm-2chan`
-  (GPIO12/13), UART on without a console (`/dev/serial0` -> `ttyS0`, group `dialout`) for the ZD100.
+  (GPIO12/13), UART on without a console (`/dev/serial0` -> `ttyS0`, group `dialout`) for the ZD100; `serial-getty@ttyS0` is
+  masked, systemd would otherwise start a login prompt on the sensor line.
+- Partitions: boot (vfat, 130 MiB) and a fixed 8 GiB ext4 rootfs (`meta-cse/files/wic/cse-sdimage.wks`); the logs
+  live in `/var/lib` on it. The rest of the card is left free. Hostname `radon` / `servo` (also the mDNS name).
+- Only the packages the boards need (about 150) and 11 kernel modules (Wi-Fi, I2C, PWM); no Bluetooth, audio,
+  modem, NFC, NFS, X11 or locales.
 - App OTA, the same updater and signed releases as the Raspbian boards: `cse-ota.timer` (5 min after boot, then
   hourly, up to 10 min random delay) runs `/usr/bin/ota` as user `cse`. Slots live in `/var/lib/cse-ota/slots/{a,b}`,
-  `current` points at the active one, config in `/etc/cse/ota.conf`. On first boot tmpfiles seeds slot a with the
-  binary shipped in the image. `CSE_ROOT=/var/lib/cse-ota ota status` shows the state.
+  `current` points at the active one, config in `/etc/cse/ota.conf`. `cse-ota-seed.service` fills slot a with the
+  binary shipped in the image on first boot, and again whenever the active slot is empty (a power cut right after
+  the first boot can leave 0-byte files). `CSE_ROOT=/var/lib/cse-ota ota status` shows the state.
 - `radon-logger` / `servo-logger` systemd services (user `cse`, sandboxed, `Restart=always`), same logger and
   record format as the Raspbian setup, state in `/var/lib/cse-radon` or `/var/lib/cse-servo`.
   The servo service switches PWM off before start and after any exit and never moves a servo.
 - Wi-Fi via wpa_supplicant + systemd-networkd, time via systemd-timesyncd (no RTC on the board).
-- Login: user `dreamteam`, SSH key only, passwordless sudo. Root is locked.
+- Login: user `dreamteam`, SSH key only (password field `*`: no password matches, but the account is not locked;
+  a locked account makes sshd refuse keys too), passwordless sudo. Root is locked.
+- `/var/log` is in RAM (journal lost at power-off).
 
 ## Not done yet
 
 - OS OTA: the app OTA above updates only the logger binaries. Kernel and packages need a new image; the plan is RAUC
   (meta-rauc is pinned but not enabled): A/B rootfs partitions, bundle published as a signed release.
 - LTE (ELR22 is a Wi-Fi router, so nothing extra is needed unless it turns out to expose USB data).
-- Everything here is built but only partly tested on real hardware, see the checklist in the PR description.
+- Tested on both boards (2026-11-10): Wi-Fi, SSH, sensors, ZD100, PWM off, slot seeding. Not yet: an OTA update
+  from this image, a servo move.
