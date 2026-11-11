@@ -7,7 +7,9 @@ if [ -L "$f" ] || [ ! -f "$f" ]; then
     rm -f "$f"
     exit 0
 fi
-word=$(head -c 32 "$f" | tr -cd 'a-z-')
+# first line only, at most 32 characters (busybox head has no -c)
+IFS= read -r word < "$f" || true
+word=$(printf '%s' "$word" | cut -c1-32 | tr -cd 'a-z-')
 rm -f "$f"
 case "$word" in
     restart-wifi)
