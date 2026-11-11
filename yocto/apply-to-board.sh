@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 # Brings a running (already flashed) board up to what the current image recipes install, without reflashing:
 # servo press permission and unit, hardware watchdog, read-only /boot, the request helper, the updater wrapper and
-# the (still switched off) maintenance tunnel. Safe to run again. Reboot the board afterwards.
+# the maintenance tunnel. Safe to run again. Reboot the board afterwards.
 #   ./apply-to-board.sh dreamteam@192.168.5.41 [ssh options...]
+# The tunnel stays off until it is told where to go (see server/tunnel/README.md):
+#   TUNNEL_HOST=radon.kafu.moe TUNNEL_PORT=22022 TUNNEL_KNOWN_HOSTS=known_hosts ./apply-to-board.sh ...
+# TUNNEL_KNOWN_HOSTS is a file with the tunnel server's host key line ("[host]:port ssh-ed25519 ...").
 set -euo pipefail
 host=${1:?usage: ./apply-to-board.sh user@host [ssh options...]}; shift
+kh=""
+if [ -n "${TUNNEL_HOST:-}" ]; then
+    kh=$(realpath "${TUNNEL_KNOWN_HOSTS:?TUNNEL_KNOWN_HOSTS: file with the tunnel server host key line}")
+fi
 cd "$(dirname "$0")/meta-cse"
 F=recipes-cse/cse-firmware/files
 
@@ -12,6 +19,12 @@ tar -C "$F" -cf - cse-ota.service cse-ota-run.sh cse-request.sh cse-request.path
     cse-tunnel.service servo-logger.service cse-servo-pwm.sh servo-press.sh servo.conf \
     -C "$PWD/recipes-core/systemd/files" 50-cse-watchdog.conf |
     ssh "$@" "$host" 'rm -rf /tmp/cse-apply && mkdir /tmp/cse-apply && tar -C /tmp/cse-apply -xf -'
+if [ -n "$kh" ]; then
+    grep -q "^\[$TUNNEL_HOST\]:${TUNNEL_PORT:?TUNNEL_PORT} ssh-" "$kh" || { echo "$kh has no line for [$TUNNEL_HOST]:$TUNNEL_PORT"; exit 1; }
+    { echo "TUNNEL_HOST=$TUNNEL_HOST"; echo "TUNNEL_PORT=$TUNNEL_PORT"; echo "TUNNEL_USER=${TUNNEL_USER:-tunnel}"; } |
+        ssh "$@" "$host" 'cat > /tmp/cse-apply/tunnel.conf'
+    ssh "$@" "$host" 'cat > /tmp/cse-apply/tunnel_known_hosts' < "$kh"
+fi
 ssh "$@" "$host" 'sudo sh -s' <<'REMOTE'
 set -eu
 cd /tmp/cse-apply
@@ -54,11 +67,20 @@ if [ ! -e /etc/cse/tunnel_key ]; then
     chown cse:cse /etc/cse/tunnel_key && chmod 400 /etc/cse/tunnel_key
 fi
 
+# where the tunnel goes; each board gets its own port on the server (radon 22041, servo 22042)
+if [ -e tunnel.conf ]; then
+    case "$b" in radon) rport=22041 ;; servo) rport=22042 ;; *) echo "no tunnel port for board $b"; exit 1 ;; esac
+    { cat tunnel.conf; echo "TUNNEL_RPORT=$rport"; } > /etc/cse/tunnel.conf
+    put tunnel_known_hosts /etc/cse/tunnel_known_hosts 644
+    chmod 644 /etc/cse/tunnel.conf
+fi
+
 systemctl daemon-reload
 systemctl enable cse-request.path cse-tunnel.service > /dev/null 2>&1
 sync
 rm -rf /tmp/cse-apply
 echo "applied on $b. boot line: $(grep /boot /etc/fstab)"
 echo "groups: $(id cse | sed 's/.*groups=//') | $(id dreamteam | sed 's/.*groups=//')"
+echo "tunnel: $([ -e /etc/cse/tunnel.conf ] && tr '\n' ' ' < /etc/cse/tunnel.conf || echo 'not configured (off)')"
 echo "tunnel public key: $(cat /etc/cse/tunnel_key.pub)"
 REMOTE

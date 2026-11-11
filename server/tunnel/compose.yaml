@@ -1,0 +1,13 @@
+# Maintenance tunnels from the boards. pfSense forwards WAN tcp/22022 to this host's 22022.
+# The boards' own sshd then appears on 127.0.0.1:22041 (radon) and 127.0.0.1:22042 (servo) of this host only.
+services:
+  cse-tunnel:
+    image: cse-tunnel:1
+    restart: unless-stopped
+    ports:
+      - "22022:2222"
+      - "127.0.0.1:22041:22041"
+      - "127.0.0.1:22042:22042"
+    volumes:
+      - ./data:/data
+      - ./authorized_keys:/run/cse/authorized_keys:ro
