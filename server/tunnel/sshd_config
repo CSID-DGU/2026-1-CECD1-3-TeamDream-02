@@ -24,8 +24,9 @@ PermitTTY no
 PermitUserRC no
 ForceCommand /bin/false
 
-# A tunnel whose board vanished (modem reboot) is dropped after 3 minutes, so the board can open its port again.
-ClientAliveInterval 60
+# A keepalive every 20 s. When the board has vanished (modem reboot, new address) it goes unanswered, and TCP
+# (tcp_retries2 in compose.yaml) closes the connection, which frees the board's port for its next attempt.
+ClientAliveInterval 20
 ClientAliveCountMax 3
 TCPKeepAlive yes
 PrintMotd no

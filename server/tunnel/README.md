@@ -40,7 +40,9 @@ The forwarded ports are published on this host's `127.0.0.1` only, so the boards
 
 - `data/` holds the container's host key. The boards refuse to connect to any other key, so keep it (back it up);
   losing it means visiting the boards.
-- A board whose connection died (modem restart) is dropped after 3 minutes; until then its port is still taken and
-  the board's new attempts fail, then it gets back in by itself (it retries every 60 s).
+- A board whose connection died (modem restart, new LTE address) still holds its port for a while, and the board's
+  new attempts are refused until the dead connection is closed (within about a minute: keepalive every 20 s,
+  `tcp_retries2` in `compose.yaml`). The board retries every 60 s, so a tunnel is back 1-2 minutes after the
+  board is online again.
 - Removing a board's line from `authorized_keys` and restarting the container cuts that board off.
 - Idle cost over LTE: one keepalive per minute, a few hundred kB per day.
