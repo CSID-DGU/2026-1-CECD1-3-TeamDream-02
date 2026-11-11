@@ -27,9 +27,14 @@ SRC_URI = " \
     file://cse-request.service \
     file://cse-tunnel.service \
     file://upload-token-${CSE_BOARD} \
+    file://tunnel-key-${CSE_BOARD} \
+    file://tunnel.conf \
+    file://tunnel_known_hosts \
 "
-# The board's upload token is a secret and lives outside git like the Wi-Fi password: CSE_PROVISION_DIR
-# (default yocto/provision). "Unable to find file://upload-token-..." means it is missing there, see README.
+# The board's upload token and its maintenance-tunnel key are secrets and live outside git like the Wi-Fi
+# password: CSE_PROVISION_DIR (default yocto/provision), together with where the tunnel goes (tunnel.conf) and the
+# tunnel server's pinned host key (tunnel_known_hosts). "Unable to find file://upload-token-..." or
+# "...tunnel-key-..." means it is missing there, see README.
 FILESEXTRAPATHS:prepend := "${CSE_PROVISION_DIR}:"
 SRC_URI[ota.sha256sum] = "ea3957b8e8852272a8b8fddb87ccf85db22f8ecb0626a787e63c0f09a082555b"
 
@@ -77,8 +82,12 @@ do_install() {
     done
     chmod 0755 ${D}${libexecdir}/cse-ota-seed ${D}${libexecdir}/cse-ota-run
     install -m 0755 ${UNPACKDIR}/cse-request.sh ${D}${libexecdir}/cse-request
-    # stays off until /etc/cse/tunnel.conf, tunnel_key and tunnel_known_hosts are put on the board (README)
+    # maintenance tunnel (server/tunnel/): destination, pinned server key, and this board's key and server port
     install -m 0644 ${UNPACKDIR}/cse-tunnel.service ${D}${systemd_system_unitdir}/
+    install -m 0400 -o cse -g cse ${UNPACKDIR}/tunnel-key-${CSE_BOARD} ${D}${sysconfdir}/cse/tunnel_key
+    install -m 0644 ${UNPACKDIR}/tunnel_known_hosts ${D}${sysconfdir}/cse/tunnel_known_hosts
+    install -m 0644 ${UNPACKDIR}/tunnel.conf ${D}${sysconfdir}/cse/tunnel.conf
+    echo "TUNNEL_RPORT=${CSE_TUNNEL_RPORT}" >> ${D}${sysconfdir}/cse/tunnel.conf
 
     cat > ${D}${sysconfdir}/cse/ota.conf <<EOF
 board=${CSE_BOARD}

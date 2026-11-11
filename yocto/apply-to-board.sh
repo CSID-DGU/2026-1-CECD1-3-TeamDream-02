@@ -12,6 +12,7 @@ kh=""
 if [ -n "${TUNNEL_HOST:-}" ]; then
     kh=$(realpath "${TUNNEL_KNOWN_HOSTS:?TUNNEL_KNOWN_HOSTS: file with the tunnel server host key line}")
 fi
+prov=$(cd "$(dirname "$0")" && pwd)/provision
 cd "$(dirname "$0")/meta-cse"
 F=recipes-cse/cse-firmware/files
 
@@ -24,6 +25,12 @@ if [ -n "$kh" ]; then
     { echo "TUNNEL_HOST=$TUNNEL_HOST"; echo "TUNNEL_PORT=$TUNNEL_PORT"; echo "TUNNEL_USER=${TUNNEL_USER:-tunnel}"; } |
         ssh "$@" "$host" 'cat > /tmp/cse-apply/tunnel.conf'
     ssh "$@" "$host" 'cat > /tmp/cse-apply/tunnel_known_hosts' < "$kh"
+fi
+# the board's tunnel key from provision/ (the one the image would carry), if there is one for this board
+b=$(ssh "$@" "$host" hostname)
+if [ -f "$prov/tunnel-key-$b" ]; then
+    ssh "$@" "$host" 'umask 077; cat > /tmp/cse-apply/tunnel_key' < "$prov/tunnel-key-$b"
+    ssh "$@" "$host" 'cat > /tmp/cse-apply/tunnel_key.pub' < "$prov/tunnel-key-$b.pub"
 fi
 ssh "$@" "$host" 'sudo sh -s' <<'REMOTE'
 set -eu
@@ -61,8 +68,11 @@ if [ "$b" = servo ]; then
     [ -e /etc/cse/servo.conf ] || put servo.conf /etc/cse/servo.conf 644
 fi
 
-# key for the maintenance tunnel; the private part never leaves the board
-if [ ! -e /etc/cse/tunnel_key ]; then
+# key for the maintenance tunnel: the provisioned one, else one made here
+if [ -e tunnel_key ]; then
+    cp tunnel_key /etc/cse/tunnel_key && cp tunnel_key.pub /etc/cse/tunnel_key.pub
+    chown cse:cse /etc/cse/tunnel_key && chmod 400 /etc/cse/tunnel_key
+elif [ ! -e /etc/cse/tunnel_key ]; then
     ssh-keygen -q -t ed25519 -N '' -C "cse-$b-tunnel" -f /etc/cse/tunnel_key
     chown cse:cse /etc/cse/tunnel_key && chmod 400 /etc/cse/tunnel_key
 fi
