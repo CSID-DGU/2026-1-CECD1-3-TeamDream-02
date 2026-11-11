@@ -35,7 +35,11 @@ healthy() {
 }
 use() { sed -i "s/^\( *image: *cse-server:\).*/\1$1/" compose.yaml && docker compose up -d > /dev/null 2>&1; }
 
-use "$new"
+if ! use "$new"; then
+    say "failed to start cse-server $new, going back to $cur"
+    use "$cur"
+    exit 1
+fi
 if healthy; then
     say "cse-server $new is running"
 else
