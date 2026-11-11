@@ -1,5 +1,5 @@
 CSE_BOARD = "servo"
-SRC_URI[bin.sha256sum] = "11fafcba0841bfeb9aa8a3d5d11145361e1c41f15da2ebbb41ba0aee5026286f"
+SRC_URI[bin.sha256sum] = "6c5aba67f0e36e75b0d184377f6fcf2011788ec3bfc4e5d488c464c21d91d1fc"
 require cse-firmware.inc
 
 SRC_URI += "file://cse-servo-pwm.sh file://servo.conf file://servo-press.sh"

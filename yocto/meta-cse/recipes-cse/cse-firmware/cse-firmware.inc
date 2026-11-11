@@ -2,9 +2,9 @@ SUMMARY = "CSE ${CSE_BOARD} board logger and A/B app updater (prebuilt static AR
 LICENSE = "CLOSED"
 
 CSE_REPO = "https://github.com/CSID-DGU/2026-1-CECD1-3-TeamDream-02"
-CSE_TAG = "fw-v0.1.4"
+CSE_TAG = "fw-v0.2.0"
 # GitHub Actions run number of CSE_TAG (manifest.json "build"); the seed slot reports it so OTA only installs newer builds.
-CSE_BUILD = "5"
+CSE_BUILD = "6"
 # Boards poll this for newer signed releases (cse-ota.timer, hourly).
 CSE_OTA_SOURCE = "${CSE_REPO}/releases/latest/download"
 # Ingest server (server/ in this repo) the boards upload their records to.
@@ -31,7 +31,7 @@ SRC_URI = " \
 # The board's upload token is a secret and lives outside git like the Wi-Fi password: CSE_PROVISION_DIR
 # (default yocto/provision). "Unable to find file://upload-token-..." means it is missing there, see README.
 FILESEXTRAPATHS:prepend := "${CSE_PROVISION_DIR}:"
-SRC_URI[ota.sha256sum] = "e04b6bcacb18e96eefe71f928af4341806233e91a2c4c024f5c2a1b0c1ead124"
+SRC_URI[ota.sha256sum] = "ea3957b8e8852272a8b8fddb87ccf85db22f8ecb0626a787e63c0f09a082555b"
 
 S = "${UNPACKDIR}"
 
