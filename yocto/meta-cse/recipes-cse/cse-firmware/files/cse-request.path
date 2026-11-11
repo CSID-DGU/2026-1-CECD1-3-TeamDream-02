@@ -1,0 +1,8 @@
+[Unit]
+Description=CSE @BOARD@ board: request from the board program to the root helper
+
+[Path]
+PathExists=/var/lib/cse-@BOARD@/request
+
+[Install]
+WantedBy=multi-user.target

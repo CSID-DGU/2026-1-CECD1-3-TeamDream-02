@@ -8,7 +8,7 @@ Type=oneshot
 # same user as the logger: the updater stops the logger's main process to switch slots
 User=cse
 Environment=CSE_ROOT=/var/lib/cse-ota
-ExecStart=/usr/bin/ota run
+ExecStart=/usr/libexec/cse-ota-run
 StateDirectory=cse-ota
 Nice=10
 # includes the post-install health wait (default 10 min)

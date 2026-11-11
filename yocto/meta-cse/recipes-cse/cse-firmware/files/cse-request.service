@@ -1,0 +1,7 @@
+[Unit]
+Description=CSE @BOARD@ board: carry out a request of the board program (reboot, restart Wi-Fi)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/cse-request /var/lib/cse-@BOARD@/request
+SyslogIdentifier=cse-request
