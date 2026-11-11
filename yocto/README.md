@@ -54,7 +54,7 @@ Cards must be >= 9 GB. First build takes hours; `downloads/` and `sstate-cache/`
   `/var/lib/cse-radon` or `/var/lib/cse-servo`. Every record has an `event`:
   - radon: `sample` every 60 s.
   - servo (since fw-v0.2.0): `sample` every 60 s, `led_change` when an indicator light switches (cells read
-    every second, three readings must agree), `servo` for every button press.
+    every second, three readings must agree; the lit light is the cell that reads clearly lower than the other), `servo` for every button press.
 - Servo board, pressing a button: `sudo servo-press 1` (or `2`; `sudo servo-press 1 1540` to try a position).
   The running logger does the motion, so readings and motion never overlap: one servo at a time, rest -> press ->
   hold -> rest in steps of 20 us / 60 ms, signal off afterwards, range fixed to 1300..1700 us. Positions, hold time

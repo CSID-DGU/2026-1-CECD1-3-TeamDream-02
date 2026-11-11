@@ -22,7 +22,11 @@ pub struct Conf {
     pub sample_s: u64,
     /// milliseconds between light-cell readings
     pub poll_ms: u64,
-    /// a cell reads low when its light is on: on below this voltage ...
+    /// Normally exactly one of the two lights is on, and a cell reads low when its light is on: when the two
+    /// cell voltages differ by more than this, the lower one is the lit light and the other one is off.
+    pub led_diff_v: f64,
+    /// When they do not differ that much (both on, or both off), each cell is judged by itself:
+    /// on below this voltage ...
     pub led_on_below_v: f64,
     /// ... off above this one; in between the previous state stands
     pub led_off_above_v: f64,
@@ -36,6 +40,7 @@ impl Default for Conf {
         Self {
             sample_s: 60,
             poll_ms: 1000,
+            led_diff_v: 0.5,
             led_on_below_v: 2.0,
             led_off_above_v: 2.4,
             rest_us: [1500; 2],
@@ -62,6 +67,7 @@ impl Conf {
             match k {
                 "sample_s" => c.sample_s = int()?,
                 "poll_ms" => c.poll_ms = int()?,
+                "led_diff_v" => c.led_diff_v = v.parse().map_err(|_| bad())?,
                 "led_on_below_v" => c.led_on_below_v = v.parse().map_err(|_| bad())?,
                 "led_off_above_v" => c.led_off_above_v = v.parse().map_err(|_| bad())?,
                 "sv1_rest_us" => c.rest_us[0] = us()?,
@@ -75,8 +81,8 @@ impl Conf {
         if c.sample_s == 0 || !(100..=60_000).contains(&c.poll_ms) || c.hold_ms > MAX_HOLD_MS {
             return Err(err(format!("servo.conf: sample_s >= 1, poll_ms 100..60000, hold_ms <= {MAX_HOLD_MS}")));
         }
-        if !(c.led_on_below_v < c.led_off_above_v) {
-            return Err(err("servo.conf: led_on_below_v must be below led_off_above_v"));
+        if !(c.led_on_below_v < c.led_off_above_v) || !(c.led_diff_v > 0.0) {
+            return Err(err("servo.conf: led_on_below_v must be below led_off_above_v, led_diff_v above 0"));
         }
         Ok(c)
     }
@@ -102,6 +108,23 @@ pub fn ramp(from: u32, to: u32) -> Vec<u32> {
     out
 }
 
+/// What one reading of the two cells (None = read failed) says about the two lights; None = nothing.
+pub fn classify(v: [Option<f64>; 2], c: &Conf) -> [Option<bool>; 2] {
+    if let [Some(a), Some(b)] = v {
+        if b - a > c.led_diff_v {
+            return [Some(true), Some(false)];
+        }
+        if a - b > c.led_diff_v {
+            return [Some(false), Some(true)];
+        }
+    }
+    v.map(|v| match v {
+        Some(v) if v < c.led_on_below_v => Some(true),
+        Some(v) if v > c.led_off_above_v => Some(false),
+        _ => None, // between the thresholds or unreadable
+    })
+}
+
 /// One indicator light, debounced.
 #[derive(Default)]
 pub struct Led {
@@ -116,13 +139,8 @@ impl Led {
         self.on
     }
 
-    /// Takes one cell voltage (None = read failed). Returns the previous state when the light switched.
-    pub fn update(&mut self, v: Option<f64>, c: &Conf) -> Option<Option<bool>> {
-        let now = match v {
-            Some(v) if v < c.led_on_below_v => Some(true),
-            Some(v) if v > c.led_off_above_v => Some(false),
-            _ => None, // between the thresholds or unreadable: says nothing
-        };
+    /// Takes what one reading says (see `classify`). Returns the previous state when the light switched.
+    pub fn update(&mut self, now: Option<bool>) -> Option<Option<bool>> {
         if now.is_none() || now == self.on {
             self.candidate = None;
             return None;
@@ -154,6 +172,7 @@ mod tests {
         assert!(Conf::parse("sv2_rest_us=1200").is_err());
         assert!(Conf::parse("hold_ms=60000").is_err());
         assert!(Conf::parse("led_on_below_v=2.5").is_err());
+        assert!(Conf::parse("led_diff_v=0").is_err());
         assert!(Conf::parse("bogus=1").is_err());
         assert!(Conf::parse("poll_ms=10").is_err());
     }
@@ -169,30 +188,45 @@ mod tests {
     }
 
     #[test]
-    fn led_switches_only_after_agreeing_readings() {
+    fn lights_are_told_apart_by_the_difference_first() {
         let c = Conf::default();
+        // normal case, one light on: the clearly lower cell is the lit one, whatever the absolute level
+        assert_eq!(classify([Some(1.45), Some(2.83)], &c), [Some(true), Some(false)]);
+        assert_eq!(classify([Some(2.9), Some(2.3)], &c), [Some(false), Some(true)]);
+        assert_eq!(classify([Some(2.2), Some(3.2)], &c), [Some(true), Some(false)]);
+        // about equal: both on, both off, or undecided, by the absolute thresholds
+        assert_eq!(classify([Some(1.4), Some(1.6)], &c), [Some(true), Some(true)]);
+        assert_eq!(classify([Some(3.1), Some(3.2)], &c), [Some(false), Some(false)]);
+        assert_eq!(classify([Some(2.2), Some(2.3)], &c), [None, None]);
+        // one cell unreadable: the other is judged by itself
+        assert_eq!(classify([None, Some(1.2)], &c), [None, Some(true)]);
+        assert_eq!(classify([None, None], &c), [None, None]);
+    }
+
+    #[test]
+    fn led_switches_only_after_agreeing_readings() {
+        let (on, off) = (Some(true), Some(false));
         let mut led = Led::default();
-        // start-up: three bright readings establish "on", reported as a switch from unknown
-        assert_eq!(led.update(Some(1.2), &c), None);
-        assert_eq!(led.update(Some(1.2), &c), None);
-        assert_eq!(led.update(Some(1.2), &c), Some(None));
-        assert_eq!(led.on(), Some(true));
-        // one dark flicker, a failed read and a reading between the thresholds change nothing
-        assert_eq!(led.update(Some(3.0), &c), None);
-        assert_eq!(led.update(Some(1.2), &c), None);
-        assert_eq!(led.update(None, &c), None);
-        assert_eq!(led.update(Some(2.2), &c), None);
-        assert_eq!(led.on(), Some(true));
-        // three dark readings in a row: switched off, previous state was on
-        assert_eq!(led.update(Some(3.0), &c), None);
-        assert_eq!(led.update(Some(3.0), &c), None);
-        assert_eq!(led.update(Some(3.0), &c), Some(Some(true)));
-        assert_eq!(led.on(), Some(false));
+        // start-up: three "on" readings establish the state, reported as a switch from unknown
+        assert_eq!(led.update(on), None);
+        assert_eq!(led.update(on), None);
+        assert_eq!(led.update(on), Some(None));
+        assert_eq!(led.on(), on);
+        // one "off" flicker and readings that say nothing change nothing
+        assert_eq!(led.update(off), None);
+        assert_eq!(led.update(on), None);
+        assert_eq!(led.update(None), None);
+        assert_eq!(led.on(), on);
+        // three "off" readings in a row: switched, previous state was on
+        assert_eq!(led.update(off), None);
+        assert_eq!(led.update(off), None);
+        assert_eq!(led.update(off), Some(on));
+        assert_eq!(led.on(), off);
         // an interrupted run starts counting again
-        assert_eq!(led.update(Some(1.0), &c), None);
-        assert_eq!(led.update(Some(1.0), &c), None);
-        assert_eq!(led.update(Some(2.2), &c), None);
-        assert_eq!(led.update(Some(1.0), &c), None);
-        assert_eq!(led.on(), Some(false));
+        assert_eq!(led.update(on), None);
+        assert_eq!(led.update(on), None);
+        assert_eq!(led.update(None), None);
+        assert_eq!(led.update(on), None);
+        assert_eq!(led.on(), off);
     }
 }

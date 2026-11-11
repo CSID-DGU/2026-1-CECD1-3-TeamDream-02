@@ -8,7 +8,7 @@
 //! position to the press position and back, in small steps, and switches the signal off again.
 use firmware::i2c::Bus;
 use firmware::logger::{self, Recorder, Stamp};
-use firmware::servo_ctl::{Conf, Led, STEP_MS, check_us, ramp};
+use firmware::servo_ctl::{Conf, Led, STEP_MS, check_us, classify, ramp};
 use firmware::{ads1115, ina226, pwm, sys, tmp102, version};
 use serde::Serialize;
 use std::io::{self, BufRead, BufReader, Write};
@@ -187,10 +187,11 @@ impl Daemon {
         let mut errors = Vec::new();
         let before = self.led_on();
         self.ldr = self.sensors.ldrs(&mut errors);
+        let seen = classify(self.ldr, &self.conf);
         let mut switched = false;
         for i in 0..2 {
             // the first time a state becomes known is not a switch
-            switched |= matches!(self.leds[i].update(self.ldr[i], &self.conf), Some(Some(_)));
+            switched |= matches!(self.leds[i].update(seen[i]), Some(Some(_)));
         }
         if switched {
             eprintln!("lights {:?} -> {:?}", before, self.led_on());
@@ -284,11 +285,12 @@ fn run(dir: &Path, sample_s: Option<u64>) -> io::Result<()> {
     std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o660))?;
 
     eprintln!(
-        "servo {}: dir {}, sample every {}s, lights every {}ms (on < {} V, off > {} V), starting at seq {}",
+        "servo {}: dir {}, sample every {}s, lights every {}ms (difference > {} V, else on < {} V, off > {} V), starting at seq {}",
         version::VERSION,
         dir.display(),
         conf.sample_s,
         conf.poll_ms,
+        conf.led_diff_v,
         conf.led_on_below_v,
         conf.led_off_above_v,
         rec.next_seq()

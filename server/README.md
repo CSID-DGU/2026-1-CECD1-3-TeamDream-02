@@ -26,7 +26,8 @@ All endpoints except `/healthz` need `Authorization: Bearer <token>`.
 - Events: every record has an `event` saying why it was written; a record without one (firmware before
   fw-v0.2.0) counts as `sample`.
   - `sample`: periodic measurement, every 60 s on both boards, so radon and servo records line up by time.
-  - `led_change` (servo board): an indicator light switched; `record.led_before` / `record.led_on` are the states
+  - `led_change` (servo board): an indicator light switched (normally one of the two is on: the lit one is the
+    cell reading clearly lower than the other); `record.led_before` / `record.led_on` are the states
     before and after, the time is the reading that first showed the new state (about 1 s resolution, confirmed by
     the next two readings).
   - `servo` (servo board): a button press; `record.press` has the servo, the positions, the light-cell voltages
@@ -74,6 +75,25 @@ docker compose logs -f
 - Changing tokens: edit `tokens`, then `docker compose restart`.
 - Updating: build or load the new image, set its tag in `compose.yaml`, `docker compose up -d`. The database is
   upgraded in place at start (0.1.1 adds the boot times, 0.2.0 the events; existing records are kept).
+
+## Releases and automatic update
+
+Pushing a tag `server-vX.Y.Z` (same version as `server/Cargo.toml`) makes `.github/workflows/server-release.yml`
+build the image and publish it as a GitHub release asset (`cse-server-X.Y.Z.tar.zst` + `.sha256`, linux/amd64).
+These releases are not marked "latest": the boards take their firmware from `releases/latest`, which must stay a
+`fw-v*` release.
+
+On the server, `update.sh` (next to `compose.yaml`) looks for the newest `server-v*` release; if it is not the
+version `compose.yaml` names, it downloads the image, checks the sha256, loads it, switches `compose.yaml` to it
+and restarts the container. If the new container is not healthy within a minute it goes back to the previous
+image. Run it from cron for unattended updates:
+
+```
+17 * * * *  /home/me/cse/update.sh >> /home/me/cse/update.log 2>&1
+```
+
+The download is protected by HTTPS and the checksum from the same release, not by a signature of its own:
+whoever can publish a release in this repository can change what the server runs.
 
 ## Develop
 
