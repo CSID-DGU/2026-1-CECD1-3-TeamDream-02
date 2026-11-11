@@ -92,6 +92,10 @@ image. Run it from cron for unattended updates:
 17 * * * *  /home/me/cse/update.sh >> /home/me/cse/update.log 2>&1
 ```
 
+Without cron, a systemd user timer does the same (`~/.config/systemd/user/cse-server-update.{service,timer}`,
+`OnUnitActiveSec=1h`, then `systemctl --user enable --now cse-server-update.timer` and `loginctl enable-linger`
+so it also runs while nobody is logged in). That is how the current server is set up.
+
 The download is protected by HTTPS and the checksum from the same release, not by a signature of its own:
 whoever can publish a release in this repository can change what the server runs.
 
