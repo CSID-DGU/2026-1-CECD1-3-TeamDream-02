@@ -1,0 +1,29 @@
+[Unit]
+Description=CSE servo board: indicator-light logger and button presser
+After=local-fs.target
+
+[Service]
+Type=simple
+User=dreamteam
+# '+' runs as root: servo signals off before start and after any exit (PWM outlives the process).
+ExecStartPre=+/bin/sh -c 'for c in 0 1; do f=/sys/class/pwm/pwmchip0/pwm$c/enable; [ -e "$f" ] && echo 0 > "$f"; done; true'
+ExecStart=/home/dreamteam/cse/current/servo log
+ExecStopPost=+/bin/sh -c 'for c in 0 1; do f=/sys/class/pwm/pwmchip0/pwm$c/enable; [ -e "$f" ] && echo 0 > "$f"; done; true'
+StateDirectory=cse-servo
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+# Sandbox (as in rpi_runner/radon-sensor.service): only the state dir is writable.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+# i2c-1 / serial0 access comes from the i2c and dialout groups of dreamteam
+SupplementaryGroups=i2c dialout
+SyslogIdentifier=cse-servo
+
+[Install]
+WantedBy=multi-user.target

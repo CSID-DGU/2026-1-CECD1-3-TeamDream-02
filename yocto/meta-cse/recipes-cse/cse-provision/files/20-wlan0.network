@@ -1,0 +1,9 @@
+[Match]
+Name=wlan0
+
+[Network]
+DHCP=ipv4
+IPv6AcceptRA=no
+
+[DHCPv4]
+RouteMetric=600

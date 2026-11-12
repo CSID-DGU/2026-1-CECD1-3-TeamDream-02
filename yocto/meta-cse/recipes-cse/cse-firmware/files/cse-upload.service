@@ -1,0 +1,26 @@
+[Unit]
+Description=CSE @BOARD@ board record uploader
+# Does not wait for the network: it retries with backoff, and the logger keeps storing records meanwhile.
+After=local-fs.target cse-ota-seed.service
+
+[Service]
+Type=simple
+User=cse
+# same binary as the logger; exits by itself after an OTA switch so that this restarts the new one
+ExecStart=/var/lib/cse-ota/current/@BOARD@ upload
+StateDirectory=cse-@BOARD@
+Restart=always
+RestartSec=30
+TimeoutStopSec=150
+
+# Sandbox as for the logger: only the state dir is writable.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+SyslogIdentifier=cse-@BOARD@-upload
+
+[Install]
+WantedBy=multi-user.target

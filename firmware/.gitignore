@@ -1,0 +1,3 @@
+target/
+# OTA signing secret lives in ~/.config/cse-ota/ and GitHub secrets, never here
+*.key

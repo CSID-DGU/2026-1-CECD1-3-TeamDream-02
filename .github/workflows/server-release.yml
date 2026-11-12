@@ -1,0 +1,33 @@
+# Push a tag like server-v0.2.0 -> builds the ingest server image (the build runs its tests) and publishes it as a
+# GitHub release asset. server/update.sh on the server host downloads and installs the newest one.
+# The release is NOT marked "latest" on purpose: the boards fetch their firmware from releases/latest, which must
+# always be a fw-v* release.
+name: server-release
+
+on:
+  push:
+    tags: ["server-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: |
+          V="${GITHUB_REF_NAME#server-v}"
+          test "$V" = "$(sed -n 's/^version = "\(.*\)"/\1/p' server/Cargo.toml | head -n 1)" \
+            || { echo "tag $GITHUB_REF_NAME does not match the version in server/Cargo.toml"; exit 1; }
+          docker build -t "cse-server:$V" server/
+          mkdir dist
+          docker save "cse-server:$V" | zstd -19 -T0 > "dist/cse-server-$V.tar.zst"
+          (cd dist && sha256sum "cse-server-$V.tar.zst" > "cse-server-$V.tar.zst.sha256")
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --latest=false --title "$GITHUB_REF_NAME" --notes "ingest server image (linux/amd64)"

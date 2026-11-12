@@ -1,0 +1,4 @@
+# One line per board: the public key that yocto/apply-to-board.sh printed for it (/etc/cse/tunnel_key.pub on the
+# board). The options let the key open exactly its own port and nothing else. Restart the container after editing.
+restrict,port-forwarding,permitlisten="22041" ssh-ed25519 AAAA...radon cse-radon-tunnel
+restrict,port-forwarding,permitlisten="22042" ssh-ed25519 AAAA...servo cse-servo-tunnel

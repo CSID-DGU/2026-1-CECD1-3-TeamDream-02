@@ -1,0 +1,1 @@
+# the tunnel server host key: "[host]:port ssh-ed25519 AAAA...", see server/tunnel/README.md

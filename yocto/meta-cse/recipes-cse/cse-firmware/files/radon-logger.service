@@ -1,0 +1,26 @@
+[Unit]
+Description=CSE radon board 1-minute sensor logger
+# Does not wait for NTP: every record carries ntp_synced instead.
+After=local-fs.target
+
+[Service]
+Type=simple
+User=cse
+# current -> slots/a|b, switched by the OTA updater (cse-ota.service)
+ExecStart=/var/lib/cse-ota/current/radon log
+StateDirectory=cse-radon
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+# Sandbox (same as the Raspbian unit): only the state dir is writable.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+SyslogIdentifier=cse-radon
+
+[Install]
+WantedBy=multi-user.target

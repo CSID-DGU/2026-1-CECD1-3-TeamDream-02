@@ -1,0 +1,6 @@
+CSE capstone (Pi Zero W) targets:
+    cse-image-radon      radon board: ZD100 + BME280 + INA226 + TMP102 logger
+    cse-image-servo      servo board: 2 light sensors + INA226 + TMP102 logger (no servo motion)
+
+Needs yocto/provision/ (authorized_keys, wpa_supplicant-wlan0.conf) - see provision.example/.
+Flash: bmaptool copy tmp/deploy/images/raspberrypi0-wifi/<image>-raspberrypi0-wifi.rootfs.wic.bz2 /dev/sdX

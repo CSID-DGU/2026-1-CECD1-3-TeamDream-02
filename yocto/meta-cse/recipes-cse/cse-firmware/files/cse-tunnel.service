@@ -1,0 +1,21 @@
+[Unit]
+Description=CSE reverse SSH tunnel for remote maintenance (the board's sshd appears on a port of the server)
+# Off until /etc/cse/tunnel.conf exists: TUNNEL_HOST, TUNNEL_PORT, TUNNEL_USER, TUNNEL_RPORT
+ConditionPathExists=/etc/cse/tunnel.conf
+After=network.target
+
+[Service]
+User=cse
+EnvironmentFile=/etc/cse/tunnel.conf
+# The key only has to be allowed to forward one port on the server (authorized_keys: restrict,port-forwarding,
+# permitlisten). The server's host key is pinned in tunnel_known_hosts.
+ExecStart=/usr/bin/ssh -N -T -F /dev/null -i /etc/cse/tunnel_key \
+    -o UserKnownHostsFile=/etc/cse/tunnel_known_hosts -o StrictHostKeyChecking=yes -o BatchMode=yes \
+    -o ExitOnForwardFailure=yes -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -o ConnectTimeout=30 \
+    -p ${TUNNEL_PORT} -R 127.0.0.1:${TUNNEL_RPORT}:127.0.0.1:22 ${TUNNEL_USER}@${TUNNEL_HOST}
+Restart=always
+RestartSec=60
+SyslogIdentifier=cse-tunnel
+
+[Install]
+WantedBy=multi-user.target

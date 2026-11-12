@@ -1,0 +1,6 @@
+# Pi Zero W is ARMv6: armv7 targets will not run on it.
+[build]
+target = "arm-unknown-linux-musleabihf"
+
+[target.arm-unknown-linux-musleabihf]
+linker = "rust-lld"

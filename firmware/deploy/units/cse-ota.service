@@ -1,0 +1,13 @@
+[Unit]
+Description=CSE app OTA update check (signed GitHub release, A/B slots)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=dreamteam
+Environment=CSE_ROOT=/home/dreamteam/cse
+ExecStart=/home/dreamteam/cse/bin/ota run
+Nice=10
+# includes the post-install health wait (default 10 min)
+TimeoutStartSec=30min

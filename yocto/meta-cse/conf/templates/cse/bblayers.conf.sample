@@ -1,0 +1,14 @@
+POKY_BBLAYERS_CONF_VERSION = "2"
+
+BBPATH = "${TOPDIR}"
+BBFILES ?= ""
+
+# ##OEROOT## = layers/openembedded-core
+BBLAYERS ?= " \
+  ##OEROOT##/meta \
+  ##OEROOT##/../meta-yocto/meta-poky \
+  ##OEROOT##/../meta-openembedded/meta-oe \
+  ##OEROOT##/../meta-raspberrypi \
+  ##OEROOT##/../../meta-cse \
+  "
+# A/B OTA later: add ##OEROOT##/../meta-rauc and DISTRO_FEATURES += "rauc"

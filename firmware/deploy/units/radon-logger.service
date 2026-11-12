@@ -1,0 +1,28 @@
+[Unit]
+Description=CSE radon board 1-minute sensor logger
+# Does not wait for NTP: every record carries ntp_synced instead.
+After=local-fs.target
+
+[Service]
+Type=simple
+User=dreamteam
+# current -> slots/a|b, switched by the OTA updater
+ExecStart=/home/dreamteam/cse/current/radon log
+StateDirectory=cse-radon
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+# Sandbox (as in rpi_runner/radon-sensor.service): only the state dir is writable.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+# i2c-1 / serial0 access comes from the i2c and dialout groups of dreamteam
+SupplementaryGroups=i2c dialout
+SyslogIdentifier=cse-radon
+
+[Install]
+WantedBy=multi-user.target

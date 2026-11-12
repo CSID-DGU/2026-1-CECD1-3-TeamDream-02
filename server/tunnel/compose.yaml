@@ -1,0 +1,19 @@
+# Maintenance tunnels from the boards. pfSense forwards WAN tcp/22022 to this host's 22022.
+# The boards' own sshd then appears on 127.0.0.1:22041 (radon) and 127.0.0.1:22042 (servo) of this host only.
+services:
+  cse-tunnel:
+    image: cse-tunnel:1
+    restart: unless-stopped
+    # A board that changed network (modem restart, new LTE address) leaves a dead connection behind that still
+    # holds its port, and the board's new attempts are refused until it is gone. sshd's own ClientAlive timeout did
+    # not close such connections in practice (seen: 16 minutes), so let TCP give up on unanswered data after about
+    # 25 s instead of the default 15 minutes; the keepalive below is that data.
+    sysctls:
+      net.ipv4.tcp_retries2: 6
+    ports:
+      - "22022:2222"
+      - "127.0.0.1:22041:22041"
+      - "127.0.0.1:22042:22042"
+    volumes:
+      - ./data:/data
+      - ./authorized_keys:/run/cse/authorized_keys:ro

@@ -1,0 +1,14 @@
+# HAProxy (TLS) forwards to port 8080 of this host; the container itself speaks plain HTTP.
+services:
+  cse-server:
+    image: cse-server:0.2.0
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    secrets:
+      - cse_tokens
+secrets:
+  cse_tokens:
+    file: ./tokens

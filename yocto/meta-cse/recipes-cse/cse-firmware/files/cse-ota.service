@@ -1,0 +1,23 @@
+[Unit]
+Description=CSE app OTA update check (signed GitHub release, A/B slots)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# same user as the logger: the updater stops the logger's main process to switch slots
+User=cse
+Environment=CSE_ROOT=/var/lib/cse-ota
+ExecStart=/usr/libexec/cse-ota-run
+StateDirectory=cse-ota
+Nice=10
+# includes the post-install health wait (default 10 min)
+TimeoutStartSec=30min
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+SyslogIdentifier=cse-ota

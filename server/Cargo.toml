@@ -1,0 +1,19 @@
+[package]
+name = "cse-server"
+version = "0.2.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8.9"
+hex = "0.4.3"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
