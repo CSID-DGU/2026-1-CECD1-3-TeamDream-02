@@ -10,14 +10,18 @@ use std::time::Duration;
 
 const SERIAL: &str = "/dev/serial0";
 const ZD100_PREHEAT_S: f64 = 180.0;
+const ZD100_AVG_4H_S: f64 = 4.0 * 3600.0;
+const ZD100_AVG_24H_S: f64 = 24.0 * 3600.0;
 const ZD100_TIMEOUT: Duration = Duration::from_millis(2500);
-const ZD100_TRIES: usize = 3;
+const ZD100_TRIES: u8 = 3;
 
 #[derive(Serialize)]
 struct ZdOut {
     avg_4h: u16,
     avg_24h: u16,
     raw: String,
+    /// queries it took to get this reply (1: the first one was answered)
+    tries: u8,
 }
 
 #[derive(Serialize)]
@@ -37,6 +41,10 @@ struct PowerOut {
 struct Sample {
     /// ZD100 output is not valid during the 3 min after power-up
     zd100_preheat: bool,
+    /// The ZD100 has not been on for 4 h / 24 h yet, so that rolling average does not cover its whole window.
+    /// Like zd100_preheat this goes by the board's uptime: the module is powered together with the board.
+    zd100_avg_4h_partial: bool,
+    zd100_avg_24h_partial: bool,
     zd100: Option<ZdOut>,
     bme280: Option<EnvOut>,
     power: Option<PowerOut>,
@@ -66,9 +74,11 @@ impl Sensors {
             }
         }
         let zd = self.zd.as_mut()?;
-        for _ in 0..ZD100_TRIES {
+        for tries in 1..=ZD100_TRIES {
             match zd.query(ZD100_TIMEOUT) {
-                Ok(Some(r)) => return Some(ZdOut { avg_4h: r.avg_4h, avg_24h: r.avg_24h, raw: hex::encode(r.raw) }),
+                Ok(Some(r)) => {
+                    return Some(ZdOut { avg_4h: r.avg_4h, avg_24h: r.avg_24h, raw: hex::encode(r.raw), tries });
+                }
                 Ok(None) => {}
                 Err(e) => {
                     errors.push(format!("zd100: {e}"));
@@ -126,6 +136,8 @@ impl Sensors {
     fn sample(&mut self, uptime_s: f64, errors: &mut Vec<String>) -> Sample {
         Sample {
             zd100_preheat: uptime_s < ZD100_PREHEAT_S,
+            zd100_avg_4h_partial: uptime_s < ZD100_AVG_4H_S,
+            zd100_avg_24h_partial: uptime_s < ZD100_AVG_24H_S,
             zd100: self.zd100(errors),
             bme280: self.bme280(errors),
             power: self.power(errors),

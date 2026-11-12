@@ -108,7 +108,12 @@ impl Zd100 {
     }
 
     pub fn query(&mut self, timeout: Duration) -> io::Result<Option<Reading>> {
+        // Drop what the kernel queued since the last query: the module uploads a frame every second once it has had
+        // no command for 20 s, and a reply that arrived after an earlier timeout must not be taken for this query.
         self.buf.clear();
+        if unsafe { libc::tcflush(self.port.as_raw_fd(), libc::TCIFLUSH) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
         self.port.write_all(&QUERY)?;
         let deadline = Instant::now() + timeout;
         loop {
@@ -121,5 +126,34 @@ impl Zd100 {
                 return Ok(None);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_reply_and_auto_upload_frames() {
+        // a reply as the radon board logged it: 376 / 312 Bq/m3
+        let reply = [0xFF, 0x86, 0x01, 0x78, 0x01, 0x38, 0x00, 0x00, 0xC8];
+        assert!(checksum_ok(&reply));
+        let r = parse(&reply).unwrap();
+        assert_eq!((r.kind, r.avg_4h, r.avg_24h), (Kind::Reply, 376, 312));
+
+        // the same values as the module uploads them on its own: gas 0x3B, unit 0x18, 0 decimals, then the two values
+        let auto = [0xFF, 0x3B, 0x18, 0x00, 0x01, 0x78, 0x01, 0x38, 0xFB];
+        assert!(checksum_ok(&auto));
+        let r = parse(&auto).unwrap();
+        assert_eq!((r.kind, r.avg_4h, r.avg_24h), (Kind::AutoUpload, 376, 312));
+    }
+
+    #[test]
+    fn datasheet_examples_pass_the_checksum() {
+        assert!(checksum_ok(&QUERY));
+        assert!(checksum_ok(&[0xFF, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7A]));
+        assert!(checksum_ok(&[0xFF, 0x3B, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAD]));
+        assert!(!checksum_ok(&[0xFF, 0x86, 0x01, 0x78, 0x01, 0x38, 0x00, 0x00, 0xC9]));
+        assert!(parse(&[0xFF, 0x87, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79]).is_none());
     }
 }
